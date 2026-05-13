@@ -178,6 +178,25 @@ class AIFilter:
             print(f"[AI筛选] 标签提取失败: {type(e).__name__}: {e}")
             return []
 
+    @staticmethod
+    def build_tags_from_config(items: List[Dict]) -> List[Dict]:
+        """
+        从配置构建标签列表（跳过 AI 提取）
+
+        Args:
+            items: [{"name": str, "description": str}, ...]
+
+        Returns:
+            [{"tag": str, "description": str}, ...]
+        """
+        tags = []
+        for item in items:
+            name = str(item.get("name", "")).strip()
+            desc = str(item.get("description", "")).strip()
+            if name:
+                tags.append({"tag": name, "description": desc})
+        return tags
+
     def update_tags(self, old_tags: List[Dict], interests_content: str) -> Optional[Dict]:
         """
         阶段 A'：AI 对比旧标签和新兴趣描述，给出更新方案

@@ -5,6 +5,8 @@
 提供配置上下文类，封装所有依赖配置的操作，消除全局状态和包装函数。
 """
 
+import hashlib
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -127,6 +129,11 @@ class AppContext:
     def show_new_section(self) -> bool:
         """是否显示新增热点区域"""
         return self.config.get("DISPLAY", {}).get("REGIONS", {}).get("NEW_ITEMS", True)
+
+    @property
+    def show_standalone_section(self) -> bool:
+        """是否显示独立展示区"""
+        return self.config.get("DISPLAY", {}).get("REGIONS", {}).get("STANDALONE", True)
 
     @property
     def region_order(self) -> List[str]:
@@ -361,6 +368,7 @@ class AppContext:
             display_mode=self.display_mode,
             ai_analysis=ai_analysis,
             show_new_section=self.show_new_section,
+            show_standalone_section=self.show_standalone_section,
             standalone_data=standalone_data,
         )
 
@@ -541,10 +549,31 @@ class AppContext:
         # 创建 AIFilter 实例
         ai_filter = AIFilter(ai_config, filter_config, self.get_time, debug)
 
-        # 确定实际使用的兴趣文件名
-        # None = 使用默认 config/ai_interests.txt，指定文件名 = config/custom/ai/{name}
-        configured_interests = interests_file or filter_config.get("INTERESTS_FILE")
-        effective_interests_file = configured_interests or "ai_interests.txt"
+        # 确定标签模式
+        tags_mode = self.config.get("TAGS_MODE", "auto")
+        tags_items = self.config.get("TAGS_ITEMS", [])
+
+        if tags_mode == "manual":
+            effective_interests_file = "__manual__"
+            if not tags_items:
+                return AIFilterResult(success=False, error="手动标签模式未配置标签")
+            tags_content = json.dumps(tags_items, ensure_ascii=False, sort_keys=True)
+            current_hash = hashlib.md5(tags_content.encode("utf-8")).hexdigest()
+            interests_content = None
+        else:
+            # 确定实际使用的兴趣文件名
+            # None = 使用默认 config/ai_interests.txt，指定文件名 = config/custom/ai/{name}
+            configured_interests = interests_file or filter_config.get("INTERESTS_FILE")
+            effective_interests_file = configured_interests or "ai_interests.txt"
+
+            # 1. 读取兴趣描述
+            # 传 configured_interests（可能为 None）给 load_interests_content，
+            # 让它区分"默认文件(config/ai_interests.txt)"和"自定义文件(config/custom/ai/)"
+            interests_content = ai_filter.load_interests_content(configured_interests)
+            if not interests_content:
+                return AIFilterResult(success=False, error="兴趣描述文件为空或不存在")
+
+            current_hash = ai_filter.compute_interests_hash(interests_content, effective_interests_file)
 
         if debug:
             print(f"[AI筛选][DEBUG] === 配置信息 ===")
@@ -554,20 +583,14 @@ class AppContext:
             print(f"[AI筛选][DEBUG] interests_file={effective_interests_file}")
             print(f"[AI筛选][DEBUG] prompt_file={filter_config.get('PROMPT_FILE', 'prompt.txt')}")
             print(f"[AI筛选][DEBUG] extract_prompt_file={filter_config.get('EXTRACT_PROMPT_FILE', 'extract_prompt.txt')}")
-
-        # 1. 读取兴趣描述
-        # 传 configured_interests（可能为 None）给 load_interests_content，
-        # 让它区分"默认文件(config/ai_interests.txt)"和"自定义文件(config/custom/ai/)"
-        interests_content = ai_filter.load_interests_content(configured_interests)
-        if not interests_content:
-            return AIFilterResult(success=False, error="兴趣描述文件为空或不存在")
-
-        current_hash = ai_filter.compute_interests_hash(interests_content, effective_interests_file)
         storage = self.get_storage_manager()
 
         if debug:
             print(f"[AI筛选][DEBUG] 兴趣描述 hash: {current_hash}")
-            print(f"[AI筛选][DEBUG] 兴趣描述内容 ({len(interests_content)} 字符):\n{interests_content}")
+            if interests_content:
+                print(f"[AI筛选][DEBUG] 兴趣描述内容 ({len(interests_content)} 字符):\n{interests_content}")
+            else:
+                print(f"[AI筛选][DEBUG] 手动模式标签内容: {tags_content}")
 
         # 2. 开启批量模式（远程后端延迟上传，所有写操作完成后统一上传）
         storage.begin_batch()
@@ -581,47 +604,36 @@ class AppContext:
 
         if stored_hash != current_hash:
             new_version = storage.get_latest_ai_filter_tag_version() + 1
-            threshold = filter_config.get("RECLASSIFY_THRESHOLD", 0.6)
 
-            if stored_hash is None:
-                # 首次运行，直接提取并保存全部标签
-                print(f"[AI筛选] 首次运行 ({effective_interests_file})，提取标签...")
-                tags_data = ai_filter.extract_tags(interests_content)
-                if not tags_data:
-                    storage.end_batch()
-                    return AIFilterResult(success=False, error="标签提取失败")
+            if tags_mode == "manual":
+                # manual 模式：直接使用配置的标签，废弃旧标签和旧结果（保留已分析记录，避免全量重分类）
+                print(f"[AI筛选] 手动模式标签变更，重新保存标签...")
+                storage.deprecate_all_ai_filter_tags(interests_file=effective_interests_file)
+                tags_data = ai_filter.build_tags_from_config(tags_items)
                 tags_data = self._with_ordered_priorities(tags_data, start_priority=1)
                 saved_count = storage.save_ai_filter_tags(tags_data, new_version, current_hash, interests_file=effective_interests_file)
-                print(f"[AI筛选] 已保存 {saved_count} 个标签 (版本 {new_version})")
+                print(f"[AI筛选] 手动模式: 已保存 {saved_count} 个标签 (版本 {new_version})")
             else:
-                # 兴趣描述已变更，让 AI 对比旧标签和新兴趣，给出更新方案
-                old_tags = storage.get_active_ai_filter_tags(interests_file=effective_interests_file)
-                update_result = ai_filter.update_tags(old_tags, interests_content)
+                threshold = filter_config.get("RECLASSIFY_THRESHOLD", 0.6)
 
-                if update_result is None:
-                    # AI 标签更新失败，回退到重新提取全部标签
-                    print(f"[AI筛选] AI 标签更新失败，回退到重新提取")
+                if stored_hash is None:
+                    # 首次运行，直接提取并保存全部标签
+                    print(f"[AI筛选] 首次运行 ({effective_interests_file})，提取标签...")
                     tags_data = ai_filter.extract_tags(interests_content)
                     if not tags_data:
                         storage.end_batch()
                         return AIFilterResult(success=False, error="标签提取失败")
                     tags_data = self._with_ordered_priorities(tags_data, start_priority=1)
-                    deprecated_count = storage.deprecate_all_ai_filter_tags(interests_file=effective_interests_file)
-                    storage.clear_analyzed_news(interests_file=effective_interests_file)
                     saved_count = storage.save_ai_filter_tags(tags_data, new_version, current_hash, interests_file=effective_interests_file)
-                    print(f"[AI筛选] 废弃 {deprecated_count} 个旧标签, 保存 {saved_count} 个新标签 (版本 {new_version})")
+                    print(f"[AI筛选] 已保存 {saved_count} 个标签 (版本 {new_version})")
                 else:
-                    change_ratio = update_result["change_ratio"]
-                    keep_tags = update_result["keep"]
-                    add_tags = update_result["add"]
-                    remove_tags = update_result["remove"]
+                    # 兴趣描述已变更，让 AI 对比旧标签和新兴趣，给出更新方案
+                    old_tags = storage.get_active_ai_filter_tags(interests_file=effective_interests_file)
+                    update_result = ai_filter.update_tags(old_tags, interests_content)
 
-                    if debug:
-                        print(f"[AI筛选][DEBUG] AI 标签更新: keep={len(keep_tags)}, add={len(add_tags)}, remove={len(remove_tags)}, change_ratio={change_ratio:.2f}, threshold={threshold:.2f}")
-
-                    if change_ratio >= threshold:
-                        # 全量重分类：废弃所有旧标签，用 extract_tags 重新提取
-                        print(f"[AI筛选] 兴趣文件变更: {effective_interests_file} (AI change_ratio={change_ratio:.2f} >= threshold={threshold:.2f} → 全量重分类)")
+                    if update_result is None:
+                        # AI 标签更新失败，回退到重新提取全部标签
+                        print(f"[AI筛选] AI 标签更新失败，回退到重新提取")
                         tags_data = ai_filter.extract_tags(interests_content)
                         if not tags_data:
                             storage.end_batch()
@@ -632,42 +644,63 @@ class AppContext:
                         saved_count = storage.save_ai_filter_tags(tags_data, new_version, current_hash, interests_file=effective_interests_file)
                         print(f"[AI筛选] 废弃 {deprecated_count} 个旧标签, 保存 {saved_count} 个新标签 (版本 {new_version})")
                     else:
-                        # 增量更新：按 AI 指示操作
-                        print(f"[AI筛选] 兴趣文件变更: {effective_interests_file} (AI change_ratio={change_ratio:.2f} < threshold={threshold:.2f} → 增量更新)")
-                        print(f"[AI筛选]   保留 {len(keep_tags)} 个标签, 新增 {len(add_tags)} 个, 废弃 {len(remove_tags)} 个")
+                        change_ratio = update_result["change_ratio"]
+                        keep_tags = update_result["keep"]
+                        add_tags = update_result["add"]
+                        remove_tags = update_result["remove"]
 
-                        # 废弃 AI 标记移除的标签
-                        if remove_tags:
-                            remove_set = set(remove_tags)
-                            removed_ids = [t["id"] for t in old_tags if t["tag"] in remove_set]
-                            if removed_ids:
-                                storage.deprecate_specific_ai_filter_tags(removed_ids)
+                        if debug:
+                            print(f"[AI筛选][DEBUG] AI 标签更新: keep={len(keep_tags)}, add={len(add_tags)}, remove={len(remove_tags)}, change_ratio={change_ratio:.2f}, threshold={threshold:.2f}")
+
+                        if change_ratio >= threshold:
+                            # 全量重分类：废弃所有旧标签，用 extract_tags 重新提取
+                            print(f"[AI筛选] 兴趣文件变更: {effective_interests_file} (AI change_ratio={change_ratio:.2f} >= threshold={threshold:.2f} → 全量重分类)")
+                            tags_data = ai_filter.extract_tags(interests_content)
+                            if not tags_data:
+                                storage.end_batch()
+                                return AIFilterResult(success=False, error="标签提取失败")
+                            tags_data = self._with_ordered_priorities(tags_data, start_priority=1)
+                            deprecated_count = storage.deprecate_all_ai_filter_tags(interests_file=effective_interests_file)
+                            storage.clear_analyzed_news(interests_file=effective_interests_file)
+                            saved_count = storage.save_ai_filter_tags(tags_data, new_version, current_hash, interests_file=effective_interests_file)
+                            print(f"[AI筛选] 废弃 {deprecated_count} 个旧标签, 保存 {saved_count} 个新标签 (版本 {new_version})")
+                        else:
+                            # 增量更新：按 AI 指示操作
+                            print(f"[AI筛选] 兴趣文件变更: {effective_interests_file} (AI change_ratio={change_ratio:.2f} < threshold={threshold:.2f} → 增量更新)")
+                            print(f"[AI筛选]   保留 {len(keep_tags)} 个标签, 新增 {len(add_tags)} 个, 废弃 {len(remove_tags)} 个")
+
+                            # 废弃 AI 标记移除的标签
+                            if remove_tags:
+                                remove_set = set(remove_tags)
+                                removed_ids = [t["id"] for t in old_tags if t["tag"] in remove_set]
+                                if removed_ids:
+                                    storage.deprecate_specific_ai_filter_tags(removed_ids)
+                                    if debug:
+                                        print(f"[AI筛选][DEBUG] 废弃标签 IDs: {removed_ids}")
+
+                            # 更新保留标签的描述
+                            keep_with_priority = []
+                            if keep_tags:
+                                storage.update_ai_filter_tag_descriptions(keep_tags, interests_file=effective_interests_file)
+                                keep_with_priority = self._with_ordered_priorities(keep_tags, start_priority=1)
+                                storage.update_ai_filter_tag_priorities(keep_with_priority, interests_file=effective_interests_file)
+
+                            # 保存新增标签
+                            if add_tags:
+                                add_start = keep_with_priority[-1]["priority"] + 1 if keep_with_priority else 1
+                                add_with_priority = self._with_ordered_priorities(add_tags, start_priority=add_start)
+                                saved_count = storage.save_ai_filter_tags(add_with_priority, new_version, current_hash, interests_file=effective_interests_file)
                                 if debug:
-                                    print(f"[AI筛选][DEBUG] 废弃标签 IDs: {removed_ids}")
+                                    print(f"[AI筛选][DEBUG] 新增保存 {saved_count} 个标签")
 
-                        # 更新保留标签的描述
-                        keep_with_priority = []
-                        if keep_tags:
-                            storage.update_ai_filter_tag_descriptions(keep_tags, interests_file=effective_interests_file)
-                            keep_with_priority = self._with_ordered_priorities(keep_tags, start_priority=1)
-                            storage.update_ai_filter_tag_priorities(keep_with_priority, interests_file=effective_interests_file)
+                            # 更新保留标签的 hash（标记为已处理）
+                            storage.update_ai_filter_tags_hash(effective_interests_file, current_hash)
 
-                        # 保存新增标签
-                        if add_tags:
-                            add_start = keep_with_priority[-1]["priority"] + 1 if keep_with_priority else 1
-                            add_with_priority = self._with_ordered_priorities(add_tags, start_priority=add_start)
-                            saved_count = storage.save_ai_filter_tags(add_with_priority, new_version, current_hash, interests_file=effective_interests_file)
-                            if debug:
-                                print(f"[AI筛选][DEBUG] 新增保存 {saved_count} 个标签")
-
-                        # 更新保留标签的 hash（标记为已处理）
-                        storage.update_ai_filter_tags_hash(effective_interests_file, current_hash)
-
-                        # 增量更新：清除不匹配新闻的分析记录，让它们有机会被新标签集重新分析
-                        if add_tags:
-                            cleared = storage.clear_unmatched_analyzed_news(interests_file=effective_interests_file)
-                            if cleared > 0:
-                                print(f"[AI筛选]   清除 {cleared} 条不匹配记录，将在新标签下重新分析")
+                            # 增量更新：清除不匹配新闻的分析记录，让它们有机会被新标签集重新分析
+                            if add_tags:
+                                cleared = storage.clear_unmatched_analyzed_news(interests_file=effective_interests_file)
+                                if cleared > 0:
+                                    print(f"[AI筛选]   清除 {cleared} 条不匹配记录，将在新标签下重新分析")
 
         # 3. 获取当前 active 标签
         active_tags = storage.get_active_ai_filter_tags(interests_file=effective_interests_file)

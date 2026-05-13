@@ -63,6 +63,15 @@ def _load_app_config(config_data: Dict) -> Dict:
     }
 
 
+def _load_tags_config(config_data: Dict) -> Dict:
+    """加载标签配置"""
+    tags = config_data.get("tags", {})
+    return {
+        "TAGS_MODE": tags.get("mode", "auto"),
+        "TAGS_ITEMS": tags.get("items", []),
+    }
+
+
 def _load_crawler_config(config_data: Dict) -> Dict:
     """加载爬虫配置"""
     advanced = config_data.get("advanced", {})
@@ -596,6 +605,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # 筛选策略配置
     config["FILTER"] = _load_filter_config(config_data)
+
+    # 标签配置
+    config.update(_load_tags_config(config_data))
 
     # 推送内容显示配置
     config["DISPLAY"] = _load_display_config(config_data)
