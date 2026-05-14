@@ -661,6 +661,14 @@ def render_html_content(
                 margin-bottom: 24px;
             }
 
+            /* RSS feed-group 内部两列网格 */
+            body.wide-mode .feed-group {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px;
+                margin-bottom: 0;
+            }
+
             .feed-group:last-child {
                 margin-bottom: 0;
             }
@@ -669,9 +677,10 @@ def render_html_content(
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                margin-bottom: 12px;
+                margin-bottom: 0;
                 padding-bottom: 8px;
                 border-bottom: 2px solid #10b981;
+                grid-column: 1 / -1;
             }
 
             .feed-name {
@@ -687,15 +696,11 @@ def render_html_content(
             }
 
             .rss-item {
-                margin-bottom: 12px;
+                margin-bottom: 0;
                 padding: 14px;
                 background: #f0fdf4;
                 border-radius: 8px;
                 border-left: 3px solid #10b981;
-            }
-
-            .rss-item:last-child {
-                margin-bottom: 0;
             }
 
             .rss-meta {
@@ -880,10 +885,10 @@ def render_html_content(
             body.wide-mode .header-info { grid-template-columns: repeat(4, 1fr); }
             body.wide-mode .content { padding: 32px 40px; }
 
-            /* 宽屏模式 - RSS feed-group 两列 */
+            /* 宽屏模式 - RSS feed-group 占满整行，内部 item 两列 */
             body.wide-mode .rss-feeds-grid {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
+                display: flex;
+                flex-direction: column;
                 gap: 24px;
             }
             body.wide-mode .feed-group { margin-bottom: 0; }
