@@ -703,7 +703,7 @@ def render_config_page() -> str:
                     </div>
                     <div class="form-group">
                         <label class="form-label">启用代理</label>
-                        <div class="toggle-switch" id="crawler-proxy-toggle" onclick="toggleSwitch('advanced.crawler.use_proxy')"></div>
+                        <div class="toggle-switch" id="advanced-crawler-use_proxy-toggle" onclick="toggleSwitch('advanced.crawler.use_proxy')"></div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">代理地址 <span class="optional">可选</span></label>
@@ -980,7 +980,7 @@ def render_config_page() -> str:
             // 爬虫
             const crawler = (getValue('advanced') || {}).crawler || {};
             setInput('crawler-interval', crawler.request_interval);
-            setToggle('crawler-proxy-toggle', crawler.use_proxy);
+            setToggle('advanced-crawler-use_proxy-toggle', crawler.use_proxy);
             setInput('crawler-proxy-url', crawler.default_proxy);
 
             // 基础
