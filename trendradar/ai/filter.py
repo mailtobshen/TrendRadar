@@ -364,7 +364,7 @@ class AIFilter:
 
         # 填充模板
         user_prompt = self.classify_user
-        user_prompt = user_prompt.replace("{interests_content}", interests_content)
+        user_prompt = user_prompt.replace("{interests_content}", interests_content or "")
         user_prompt = user_prompt.replace("{tags_list}", tags_list)
         user_prompt = user_prompt.replace("{news_count}", str(len(titles)))
         user_prompt = user_prompt.replace("{news_list}", news_list)
