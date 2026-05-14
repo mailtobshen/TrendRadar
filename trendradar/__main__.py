@@ -805,7 +805,7 @@ class NewsAnalyzer:
         standalone_data: Optional[Dict] = None,
         schedule: ResolvedSchedule = None,
         rss_new_urls: Optional[set] = None,
-    ) -> Tuple[List[Dict], Optional[str], Optional[AIAnalysisResult], Optional[List[Dict]]]:
+    ) -> Tuple[List[Dict], Optional[str], Optional[AIAnalysisResult], Optional[List[Dict]], Optional[List[Dict]]]:
         """统一的分析流水线：数据处理 → 统计计算（关键词/AI筛选）→ AI分析 → HTML生成"""
 
         # 根据筛选策略选择数据处理方式
@@ -913,7 +913,7 @@ class NewsAnalyzer:
                 },
             )
 
-        return stats, html_file, ai_result, rss_items
+        return stats, html_file, ai_result, rss_items, rss_new_items
 
     def _send_notification_if_needed(
         self,
@@ -1592,7 +1592,7 @@ class NewsAnalyzer:
                     all_results, historical_id_to_name, historical_title_info, raw_rss_items
                 )
 
-                stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+                stats, html_file, ai_result, rss_items, rss_new_items = self._run_analysis_pipeline(
                     all_results,
                     self.report_mode,
                     historical_title_info,
@@ -1636,7 +1636,7 @@ class NewsAnalyzer:
                     all_results, historical_id_to_name, historical_title_info, raw_rss_items
                 )
 
-                stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+                stats, html_file, ai_result, rss_items, rss_new_items = self._run_analysis_pipeline(
                     all_results,
                     self.report_mode,
                     historical_title_info,
@@ -1664,7 +1664,7 @@ class NewsAnalyzer:
                 standalone_data = self._prepare_standalone_data(
                     results, id_to_name, title_info, raw_rss_items
                 )
-                stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+                stats, html_file, ai_result, rss_items, rss_new_items = self._run_analysis_pipeline(
                     results,
                     self.report_mode,
                     title_info,
@@ -1686,7 +1686,7 @@ class NewsAnalyzer:
             standalone_data = self._prepare_standalone_data(
                 results, id_to_name, title_info, raw_rss_items
             )
-            stats, html_file, ai_result, rss_items = self._run_analysis_pipeline(
+            stats, html_file, ai_result, rss_items, rss_new_items = self._run_analysis_pipeline(
                 results,
                 self.report_mode,
                 title_info,
