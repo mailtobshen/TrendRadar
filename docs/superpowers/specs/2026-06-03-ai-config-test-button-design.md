@@ -71,7 +71,7 @@
 | ping 内容 | `messages=[{role:user, content:"hi"}], max_tokens=1` | 最小成本、跨 provider 通用 |
 | ping 超时 | 30s | 硬编码，独立于 AIClient.timeout |
 | ping 重试 | `num_retries=0` | 测试要快反馈，不要重试 |
-| Content-Length 上限 | 8KB | 三个字段绰绰有余 |
+| Content-Length 上限 | 无显式限制（与 `/api/rss/test` 对称） | 前端 body 极小，仅三字段 |
 
 ### 4. 异常归一（`tester.py` 内 `_friendly(e)`）
 
