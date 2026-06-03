@@ -1425,7 +1425,7 @@ def render_config_page() -> str:
             const opts = ['<option value="">-- 请选择 --</option>']
                 .concat(models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`));
             if (restoreValue && !models.includes(restoreValue)) {
-                opts.splice(1, 0, `<option value="${restoreValue}">${restoreValue} (自定义)</option>`);
+                opts.splice(1, 0, `<option value="${esc(restoreValue)}">${esc(restoreValue)} (自定义)</option>`);
             }
             sel.innerHTML = opts.join('');
             if (restoreValue && [...sel.options].some(o => o.value === restoreValue)) {
