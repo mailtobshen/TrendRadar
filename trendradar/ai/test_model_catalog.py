@@ -263,5 +263,25 @@ class TestModelCatalogErrors(unittest.TestCase):
         self.assertIn("鉴权失败", provider_error)
 
 
+class TestModelCatalogCurated(unittest.TestCase):
+    def test_list_curated_providers_returns_6_items(self):
+        """CURATED_PROVIDERS 列表固定 6 项，按协议家族筛选"""
+        from trendradar.ai.model_catalog import ModelCatalog, CURATED_PROVIDERS
+
+        providers = ModelCatalog.list_curated_providers()
+        # 6 项硬编码
+        self.assertEqual(len(providers), 6)
+        # 必须包含的核心 3 项
+        for p in ["openai", "anthropic", "gemini"]:
+            self.assertIn(p, providers)
+        # 顺序固定（用户看到 6 项的固定顺序）
+        self.assertEqual(
+            providers,
+            ["openai", "anthropic", "gemini", "bedrock", "vertex_ai", "azure"],
+        )
+        # CURATED_PROVIDERS 是个 list
+        self.assertIsInstance(CURATED_PROVIDERS, list)
+
+
 if __name__ == "__main__":
     unittest.main()
