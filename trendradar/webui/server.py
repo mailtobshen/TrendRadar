@@ -93,6 +93,10 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self._api_post_tags_preview()
         elif path == "/api/trigger":
             self._api_trigger_crawl()
+        elif path == "/api/regenerate-report":
+            self._api_regenerate_report()
+        elif path == "/api/rss/test":
+            self._api_post_rss_test()
         elif path == "/api/ai/test":
             self._api_post_ai_test()
         elif path == "/api/ai/models":
@@ -224,6 +228,285 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         result = self._trigger_crawl()
         code = 200 if result.get("success") else 409 if "运行中" in result.get("message", "") else 500
         self._send_json(code, result)
+
+    def _api_regenerate_report(self):
+        """API：重新生成 HTML 报告（使用已存储的数据和当前配置）"""
+        try:
+            from trendradar.core import load_config
+            from trendradar.context import AppContext
+            from trendradar.storage import StorageManager
+
+            # 加载配置
+            config = load_config()
+            ctx = AppContext(config)
+            sm = ctx.get_storage_manager()
+
+            # 获取已存储的数据
+            all_results, id_to_name, title_info = ctx.read_today_titles(quiet=True)
+            if not all_results:
+                self._send_json(400, {"success": False, "message": "没有可用的数据，请先爬取"})
+                return
+
+            # 用当前配置中的名称覆盖数据库中的旧名称
+            for p in ctx.platforms:
+                pid = p.get("id")
+                pname = p.get("name")
+                if pid and pname:
+                    id_to_name[pid] = pname
+
+            # 根据筛选策略计算统计信息
+            new_titles = ctx.detect_new_titles(ctx.platform_ids, quiet=True)
+
+            if ctx.filter_method == "ai":
+                # === AI 筛选策略 ===
+                print("[重新生成报告] 使用 AI 智能筛选策略")
+                ai_filter_result = ctx.run_ai_filter()
+
+                if ai_filter_result and ai_filter_result.success:
+                    print(f"[重新生成报告] AI 筛选完成: {ai_filter_result.total_matched} 条匹配, {len(ai_filter_result.tags)} 个标签")
+                    stats, rss_items = ctx.convert_ai_filter_to_report_data(
+                        ai_filter_result, mode="current", new_titles=new_titles,
+                    )
+                    total_titles = sum(len(titles) for titles in all_results.values())
+
+                    # 更新 AI 筛选结果中的 source_name 为当前配置
+                    feed_name_map = {f.get("id"): f.get("name") for f in ctx.rss_feeds if f.get("id") and f.get("name")}
+                    for stat_list in [stats, rss_items]:
+                        if stat_list:
+                            for stat in stat_list:
+                                for title_entry in stat.get("titles", []):
+                                    sid = title_entry.get("source_id", "")
+                                    if sid in id_to_name:
+                                        title_entry["source_name"] = id_to_name[sid]
+                                    elif sid in feed_name_map:
+                                        title_entry["source_name"] = feed_name_map[sid]
+
+                    # AI 筛选热榜无匹配时，兜底回退到关键词匹配
+                    if not stats and all_results:
+                        print("[重新生成报告] AI 筛选热榜无匹配，兜底回退到关键词匹配")
+                        word_groups, filter_words, global_filters = ctx.load_frequency_words()
+                        stats, total_titles = ctx.count_frequency(
+                            all_results, word_groups, filter_words,
+                            id_to_name, title_info, new_titles,
+                            mode="current", global_filters=global_filters, quiet=True
+                        )
+                        # 回退时也用关键词方式处理 RSS
+                        rss_data = sm.get_latest_rss_data()
+                        if rss_data:
+                            for feed in ctx.rss_feeds:
+                                fid = feed.get("id")
+                                fname = feed.get("name")
+                                if fid and fname:
+                                    rss_data.id_to_name[fid] = fname
+                                    id_to_name[fid] = fname
+                        rss_items = self._build_rss_items(ctx, sm, rss_data, word_groups, filter_words, global_filters)
+                    else:
+                        # AI 筛选成功或有结果时，也需要获取 rss_data 用于独立展示区
+                        rss_data = sm.get_latest_rss_data()
+                        if rss_data:
+                            for feed in ctx.rss_feeds:
+                                fid = feed.get("id")
+                                fname = feed.get("name")
+                                if fid and fname:
+                                    rss_data.id_to_name[fid] = fname
+                                    id_to_name[fid] = fname
+                        # AI 模式也需要加载频率词配置，用于 RSS 新增检测
+                        word_groups, filter_words, global_filters = ctx.load_frequency_words()
+                else:
+                    error_msg = ai_filter_result.error if ai_filter_result else "未知错误"
+                    print(f"[重新生成报告] AI 筛选失败: {error_msg}，回退到关键词匹配")
+                    word_groups, filter_words, global_filters = ctx.load_frequency_words()
+                    stats, total_titles = ctx.count_frequency(
+                        all_results, word_groups, filter_words,
+                        id_to_name, title_info, new_titles,
+                        mode="current", global_filters=global_filters, quiet=True
+                    )
+                    rss_data = sm.get_latest_rss_data()
+                    if rss_data:
+                        for feed in ctx.rss_feeds:
+                            fid = feed.get("id")
+                            fname = feed.get("name")
+                            if fid and fname:
+                                rss_data.id_to_name[fid] = fname
+                                id_to_name[fid] = fname
+                    rss_items = self._build_rss_items(ctx, sm, rss_data, word_groups, filter_words, global_filters)
+            else:
+                # === 关键词匹配策略 ===
+                word_groups, filter_words, global_filters = ctx.load_frequency_words()
+                stats, total_titles = ctx.count_frequency(
+                    all_results, word_groups, filter_words,
+                    id_to_name, title_info, new_titles,
+                    mode="current", global_filters=global_filters, quiet=True
+                )
+
+                # 获取 RSS 数据（关键词模式）
+                rss_data = sm.get_latest_rss_data()
+                if rss_data:
+                    for feed in ctx.rss_feeds:
+                        fid = feed.get("id")
+                        fname = feed.get("name")
+                        if fid and fname:
+                            rss_data.id_to_name[fid] = fname
+                            id_to_name[fid] = fname
+                rss_items = self._build_rss_items(ctx, sm, rss_data, word_groups, filter_words, global_filters)
+
+            # 准备独立展示区数据
+            display_config = config.get("DISPLAY", {})
+            standalone_config = display_config.get("STANDALONE", {})
+            platform_ids = standalone_config.get("PLATFORMS", [])
+            rss_feed_ids = standalone_config.get("RSS_FEEDS", [])
+            max_items = standalone_config.get("MAX_ITEMS", 20)
+
+            standalone_data = {"platforms": [], "rss_feeds": []}
+
+            if platform_ids or rss_feed_ids:
+                # 计算 latest_time
+                latest_time = None
+                if title_info:
+                    for source_titles in title_info.values():
+                        for title_data in source_titles.values():
+                            last_time = title_data.get("last_time", "")
+                            if last_time and (latest_time is None or last_time > latest_time):
+                                latest_time = last_time
+
+                # 提取热榜平台数据
+                for platform_id in platform_ids:
+                    if platform_id not in all_results:
+                        continue
+                    platform_name = id_to_name.get(platform_id, platform_id)
+                    platform_titles = all_results[platform_id]
+                    items = []
+                    for title, title_data in platform_titles.items():
+                        meta = title_info.get(platform_id, {}).get(title, {})
+                        if latest_time and meta and meta.get("last_time") != latest_time:
+                            continue
+                        current_ranks = title_data.get("ranks", [])
+                        current_rank = current_ranks[-1] if current_ranks else 0
+                        items.append({
+                            "title": title,
+                            "url": title_data.get("url", ""),
+                            "mobileUrl": title_data.get("mobileUrl", ""),
+                            "rank": current_rank,
+                            "ranks": current_ranks,
+                        })
+                    items.sort(key=lambda x: x["rank"] if x["rank"] > 0 else 9999)
+                    if max_items > 0:
+                        items = items[:max_items]
+                    if items:
+                        standalone_data["platforms"].append({
+                            "id": platform_id,
+                            "name": platform_name,
+                            "items": items,
+                        })
+
+                # 提取 RSS 数据用于独立展示区
+                if rss_feed_ids and rss_data:
+                    for feed_id, items in rss_data.items.items():
+                        if feed_id not in rss_feed_ids:
+                            continue
+                        feed_name = rss_data.id_to_name.get(feed_id, feed_id)
+                        feed_items = []
+                        for item in items[:max_items] if max_items > 0 else items:
+                            display_title = getattr(item, "translated_title", "") or item.title
+                            feed_items.append({
+                                "title": display_title,
+                                "url": item.url or "",
+                                "published_at": item.published_at or "",
+                                "author": getattr(item, "author", "") or "",
+                            })
+                        if feed_items:
+                            standalone_data["rss_feeds"].append({
+                                "id": feed_id,
+                                "name": feed_name,
+                                "items": feed_items,
+                            })
+
+            # 计算 RSS 新增项目（用于"RSS 新增更新"区块）
+            # 注意：当 AI 筛选启用时，RSS 统计已通过 AI 标签分组，
+            #       此处不再用关键词方式构建 rss_new_items，保持一致性
+            rss_new_items = None
+            if rss_data and ctx.filter_method != "ai":
+                rss_new_items = self._build_rss_new_items(ctx, sm, rss_data, word_groups, filter_words, global_filters)
+
+            # 运行 AI 分析（如果启用）
+            ai_analysis_result = None
+            ai_analysis_config = config.get("AI_ANALYSIS", {})
+            if ai_analysis_config.get("ENABLED", False) and stats:
+                print("[重新生成报告] 正在运行 AI 分析...")
+                try:
+                    from trendradar.ai.analyzer import AIAnalyzer
+                    ai_config = config.get("AI", {})
+                    analyzer = AIAnalyzer(ai_config, ai_analysis_config, ctx.get_time, debug=False)
+                    platforms = list(id_to_name.values()) if id_to_name else []
+                    keywords = [s.get("word", "") for s in stats if s.get("word")] if stats else []
+                    ai_analysis_result = analyzer.analyze(
+                        stats=stats,
+                        rss_stats=rss_items,
+                        report_mode="current",
+                        report_type="当前榜单",
+                        platforms=platforms,
+                        keywords=keywords,
+                        standalone_data=standalone_data if standalone_data else None,
+                    )
+                    if ai_analysis_result.success:
+                        print(f"[重新生成报告] AI 分析完成")
+                    else:
+                        print(f"[重新生成报告] AI 分析失败: {ai_analysis_result.error}")
+                        ai_analysis_result = None
+                except Exception as e:
+                    print(f"[重新生成报告] AI 分析异常: {e}")
+                    ai_analysis_result = None
+
+            # 生成报告
+            html_file = ctx.generate_html(
+                stats=stats,
+                total_titles=total_titles,
+                failed_ids=[],
+                new_titles=new_titles,
+                id_to_name=id_to_name,
+                mode="current",
+                update_info=None,
+                rss_items=rss_items,
+                rss_new_items=rss_new_items,
+                ai_analysis=ai_analysis_result,
+                standalone_data=standalone_data if standalone_data["platforms"] or standalone_data["rss_feeds"] else None,
+            )
+
+            self._send_json(200, {"success": True, "message": "报告已重新生成", "file": html_file})
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self._send_json(500, {"success": False, "message": f"生成失败: {e}"})
+    def _api_post_rss_test(self):
+        """API：测试 RSS 源网络连通性"""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8")
+            data = json.loads(body)
+
+            url = data.get("url", "")
+            if not url:
+                self._send_json(400, {"success": False, "message": "URL 不能为空"})
+                return
+
+            import requests
+            proxies = None
+            if data.get("use_proxy") and data.get("proxy_url"):
+                proxies = {"http": data["proxy_url"], "https": data["proxy_url"]}
+
+            headers = {
+                "User-Agent": "TrendRadar/2.0 RSS Reader (https://github.com/trendradar)",
+                "Accept": "application/feed+json, application/json, application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+            }
+            response = requests.get(url, timeout=data.get("timeout", 15), proxies=proxies, headers=headers)
+            response.raise_for_status()
+            self._send_json(200, {"success": True, "message": f"连接成功 ({response.status_code})"})
+        except requests.Timeout:
+            self._send_json(200, {"success": False, "message": f"请求超时 ({data.get('timeout', 15)}s)"})
+        except requests.RequestException as e:
+            self._send_json(200, {"success": False, "message": f"请求失败: {e}"})
+        except Exception as e:
+            self._send_json(500, {"success": False, "message": f"测试出错: {e}"})
 
     def _api_post_ai_test(self):
         """API：测试 AI 模型连通性（使用最小 ping）"""
@@ -481,6 +764,96 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             })
         except Exception:
             pass
+
+    def _build_rss_new_items(self, ctx, sm, rss_data, word_groups, filter_words, global_filters):
+        """构建 RSS 新增项目列表（关键词模式）"""
+        if not rss_data or not rss_data.items:
+            return None
+
+        # 检测新增 RSS 条目
+        new_rss_dict = sm.detect_new_rss_items(rss_data)
+        if not new_rss_dict:
+            return None
+
+        # 转换为列表格式
+        new_rss_list = []
+        for feed_id, items in new_rss_dict.items():
+            for item in items:
+                display_title = getattr(item, "translated_title", "") or item.title
+                new_rss_list.append({
+                    "title": display_title,
+                    "feed_id": feed_id,
+                    "feed_name": rss_data.id_to_name.get(feed_id, feed_id),
+                    "url": item.url or "",
+                    "published_at": item.published_at or "",
+                })
+
+        if not new_rss_list:
+            return None
+
+        from trendradar.core.analyzer import count_rss_frequency
+        rss_new_items, _ = count_rss_frequency(
+            rss_items=new_rss_list,
+            word_groups=word_groups,
+            filter_words=filter_words,
+            global_filters=global_filters,
+            new_items=new_rss_list,
+            max_news_per_keyword=0,
+            sort_by_position_first=False,
+            timezone=ctx.timezone,
+            rank_threshold=ctx.rank_threshold,
+            quiet=True,
+        )
+        return rss_new_items
+
+    def _build_rss_items(self, ctx, sm, rss_data, word_groups, filter_words, global_filters):
+        """构建 RSS 项目列表（关键词模式）"""
+        if not rss_data or not rss_data.items:
+            return None
+
+        rss_items_list = []
+        for feed_id, items in rss_data.items.items():
+            for item in items:
+                display_title = getattr(item, "translated_title", "") or item.title
+                rss_items_list.append({
+                    "title": display_title,
+                    "feed_id": feed_id,
+                    "feed_name": rss_data.id_to_name.get(feed_id, feed_id),
+                    "url": item.url or "",
+                    "published_at": item.published_at or "",
+                })
+
+        if not rss_items_list:
+            return None
+
+        from trendradar.core.analyzer import count_rss_frequency
+        rss_items, _ = count_rss_frequency(
+            rss_items=rss_items_list,
+            word_groups=word_groups,
+            filter_words=filter_words,
+            global_filters=global_filters,
+            new_items=None,
+            max_news_per_keyword=0,
+            sort_by_position_first=False,
+            timezone=ctx.timezone,
+            rank_threshold=ctx.rank_threshold,
+            quiet=True,
+        )
+        return rss_items
+
+    def _write_file_with_lock(self, path: Path, content: str):
+        """带文件锁写入"""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.write(content)
+                f.flush()
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+    def _read_status(self) -> dict:
+        """读取状态文件"""
 
     def _write_file_with_lock(self, path: Path, content: str):
         """带文件锁写入"""
