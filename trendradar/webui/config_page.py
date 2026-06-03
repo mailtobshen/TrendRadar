@@ -940,7 +940,7 @@ def render_config_page() -> str:
                     pSel.value = savedProvider;
                 }
                 if (savedProvider) {
-                    loadModelsForProvider(savedProvider, /* preserve */ true).then(() => {
+                    loadModelsForProvider(savedProvider).then(() => {
                         if (savedModel) {
                             const mSel = document.getElementById('ai-model');
                             if ([...mSel.options].some(o => o.value === savedModel)) {
@@ -1373,15 +1373,21 @@ def render_config_page() -> str:
             }
         }
 
+        let _modelLoadToken = 0;
         async function onProviderChange() {
             const provider = document.getElementById('ai-provider').value;
             updateConfig('ai.model', joinModel());
-            if (!provider) return;
-            await loadModelsForProvider(provider, /* preserveCurrent */ true);
+            if (!provider) {
+                document.getElementById('ai-model').innerHTML = '<option value="">先选 provider</option>';
+                return;
+            }
+            await loadModelsForProvider(provider);
         }
 
-        async function loadModelsForProvider(provider, preserveCurrent) {
+        async function loadModelsForProvider(provider) {
             const sel = document.getElementById('ai-model');
+            const prevValue = sel.value;
+            const myToken = ++_modelLoadToken;
             sel.innerHTML = '<option value="">加载中...</option>';
             try {
                 const res = await fetch('/api/ai/models', {
@@ -1390,13 +1396,16 @@ def render_config_page() -> str:
                     body: JSON.stringify({provider: provider})
                 });
                 const data = await res.json();
+                if (myToken !== _modelLoadToken) return;  // 较新的请求已发出，丢弃本结果
+                const models = (data && data.models) || [];
                 if (!data.success) {
                     sel.innerHTML = `<option value="">${data.message || '加载失败'}</option>`;
                     return;
                 }
-                renderModelOptions(data.models, preserveCurrent);
+                renderModelOptions(models, prevValue);
             } catch (e) {
-                sel.innerHTML = '<option value="">网络错误</option>';
+                if (myToken !== _modelLoadToken) return;
+                sel.innerHTML = `<option value="${prevValue}">${prevValue || '加载失败'}</option>`;
             }
         }
 
@@ -1421,14 +1430,15 @@ def render_config_page() -> str:
                 });
                 const data = await res.json();
                 if (data.success) {
-                    renderModelOptions(data.models, /* preserve */ false);
+                    const models = (data && data.models) || [];
+                    renderModelOptions(models, prevValue);
                     sel.value = prevValue;
                     if (data.provider_error) {
                         showToast('❌ ' + data.provider_error, 'error');
                     } else {
                         const added = (data.provider_count || 0);
                         const suffix = added > 0 ? `（+${added} 来自 provider）` : '';
-                        showToast(`已刷新 ${data.models.length} 个模型${suffix}`, 'success');
+                        showToast(`已刷新 ${models.length} 个模型${suffix}`, 'success');
                     }
                 } else {
                     sel.innerHTML = `<option value="${prevValue}">${prevValue}</option>`;
@@ -1442,16 +1452,17 @@ def render_config_page() -> str:
             }
         }
 
-        function renderModelOptions(models, preserveCurrent) {
+        function renderModelOptions(models, restoreValue) {
             const sel = document.getElementById('ai-model');
-            const currentVal = preserveCurrent ? sel.value : '';
             const opts = ['<option value="">-- 请选择 --</option>']
                 .concat(models.map(m => `<option value="${m}">${m}</option>`));
-            if (currentVal && !models.includes(currentVal)) {
-                opts.splice(1, 0, `<option value="${currentVal}">${currentVal} (自定义)</option>`);
+            if (restoreValue && !models.includes(restoreValue)) {
+                opts.splice(1, 0, `<option value="${restoreValue}">${restoreValue} (自定义)</option>`);
             }
             sel.innerHTML = opts.join('');
-            if (currentVal) sel.value = currentVal;
+            if (restoreValue && [...sel.options].some(o => o.value === restoreValue)) {
+                sel.value = restoreValue;
+            }
         }
 
         // 显示区域
