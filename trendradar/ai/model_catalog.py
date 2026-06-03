@@ -15,8 +15,8 @@ import litellm
 import requests
 
 
-# 精简后的 6 项 provider 清单（按协议家族筛选）
-# 覆盖 99% 用例：openai 兼容（DeepSeek/Moonshot/MiniMax/Qwen 等）+ Anthropic + Gemini + AWS + Google Cloud + Azure
+# 精简后的 7 项 provider 清单（按协议家族筛选）
+# 覆盖 99% 用例：openai 兼容（DeepSeek/Moonshot/MiniMax/Qwen 等）+ Anthropic + Gemini + AWS + Google Cloud + Azure + 本地 Ollama
 CURATED_PROVIDERS = [
     "openai",
     "anthropic",
@@ -24,6 +24,7 @@ CURATED_PROVIDERS = [
     "bedrock",
     "vertex_ai",
     "azure",
+    "ollama",
 ]
 
 
@@ -51,10 +52,10 @@ class ModelCatalog:
 
     @staticmethod
     def list_curated_providers() -> List[str]:
-        """返回精简后的 6 项 provider 清单（按协议家族筛选）
+        """返回精简后的 7 项 provider 清单（按协议家族筛选）
 
         与 list_providers() 不同：list_providers 返回 LiteLLM 全部 130+ provider，
-        list_curated_providers 仅返回供前端下拉用的 6 项核心 adapter。
+        list_curated_providers 仅返回供前端下拉用的 7 项核心 adapter。
         """
         return list(CURATED_PROVIDERS)
 
