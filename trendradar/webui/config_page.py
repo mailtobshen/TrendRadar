@@ -252,15 +252,15 @@ def render_config_page() -> str:
         .toast.show { transform: translateX(0); }
         .toast.success { background: #22c55e; }
         .toast.error { background: #ef4444; }
-        .btn-icon {
+        .btn-icon-refresh {
             width: 28px; height: 28px; padding: 0;
             border-radius: 6px; font-size: 14px;
             background: #f3f4f6; border: 1px solid #e5e5e5;
             cursor: pointer;
             display: inline-flex; align-items: center; justify-content: center;
         }
-        .btn-icon:hover { background: #e5e7eb; }
-        .btn-icon:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-icon-refresh:hover { background: #e5e7eb; }
+        .btn-icon-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
         .toast.info { background: #4f46e5; }
         .validation-errors {
             background: #fef2f2; border: 1px solid #fecaca;
@@ -398,7 +398,7 @@ def render_config_page() -> str:
                             <select id="ai-model" onchange="updateConfig('ai.model', joinModel())" style="flex: 1;">
                                 <option value="">先选 provider</option>
                             </select>
-                            <button type="button" class="btn-icon" id="ai-model-refresh" onclick="refreshAiModels()" title="从 provider API 刷新模型列表">↻</button>
+                            <button type="button" class="btn-icon-refresh" id="ai-model-refresh" onclick="refreshAiModels()" title="从 provider API 刷新模型列表">↻</button>
                         </div>
                     </div>
                 </div>
@@ -1354,7 +1354,11 @@ def render_config_page() -> str:
 
         async function initAiProviderList() {
             try {
-                const res = await fetch('/api/ai/providers');
+                const res = await fetch('/api/ai/providers', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: '{}'
+                });
                 const data = await res.json();
                 const sel = document.getElementById('ai-provider');
                 if (!data.success) {
