@@ -9,7 +9,7 @@ AI 模型清单聚合模块
 合并去重后返回。Provider API 失败不应阻塞 LiteLLM 部分。
 """
 
-from typing import List, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 import litellm
 import requests
@@ -43,33 +43,34 @@ class ModelCatalog:
         返回 provider 的合并模型列表（去重、按字母序）。
         详细统计请用 get_merged_with_counts。
         """
-        models, _, _ = ModelCatalog.get_merged_with_counts(provider, api_key, api_base)
+        models, _, _, _ = ModelCatalog.get_merged_with_counts(provider, api_key, api_base)
         return models
 
     @staticmethod
     def get_merged_with_counts(
         provider: str, api_key: str = "", api_base: str = ""
-    ) -> Tuple[List[str], int, int]:
+    ) -> Tuple[List[str], int, int, Optional[str]]:
         """
-        返回 (models, lite_count, provider_count)。
+        返回 (models, lite_count, provider_count, provider_error)。
 
         - lite_count：来自 LiteLLM catalog 的模型数
         - provider_count：来自 provider API 的新模型数（不含已在 LiteLLM 中的）
+        - provider_error：provider API 错误消息（None 表示成功或未调用）
         """
         # 1. 从 LiteLLM catalog 过滤
         lite_models = ModelCatalog._from_litellm(provider)
-        lite_set = set(lite_models)
 
-        # 2. 尝试从 provider API 拉
+        # 2. 尝试从 provider API 拉，捕获错误
         provider_models: List[str] = []
+        provider_error: Optional[str] = None
         if api_base and api_key:
             try:
                 provider_models = ModelCatalog._fetch_provider_models(
                     provider=provider, api_key=api_key, api_base=api_base
                 )
-            except ProviderAPIError:
-                # 失败不影响 LiteLLM 部分
-                pass
+            except ProviderAPIError as e:
+                # 失败不影响 LiteLLM 部分；记录错误供调用方决定如何处理
+                provider_error = e.user_message
 
         # 3. 合并去重，LiteLLM 在前
         seen = set(lite_models)
@@ -81,9 +82,9 @@ class ModelCatalog:
                 seen.add(m)
                 new_from_provider += 1
 
-        # 4. 排序（保留主列表顺序，但内部稳定排序）
+        # 4. 排序
         merged_sorted = sorted(set(merged), key=lambda x: x.lower())
-        return merged_sorted, len(lite_models), new_from_provider
+        return merged_sorted, len(lite_models), new_from_provider, provider_error
 
     @staticmethod
     def _from_litellm(provider: str) -> List[str]:

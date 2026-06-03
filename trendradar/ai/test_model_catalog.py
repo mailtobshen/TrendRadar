@@ -112,12 +112,13 @@ class TestModelCatalogMerge(unittest.TestCase):
             },
             clear=True,
         ):
-            models, lite_count, provider_count = ModelCatalog.get_merged_with_counts(
+            models, lite_count, provider_count, provider_error = ModelCatalog.get_merged_with_counts(
                 provider="openai", api_key="sk-x", api_base="https://api.openai.com/v1"
             )
 
         self.assertEqual(lite_count, 2)
         self.assertEqual(provider_count, 1)  # gpt-4o 已在 LiteLLM，只有 gpt-5-new 是新的
+        self.assertIsNone(provider_error)
         self.assertIn("gpt-4o", models)
         self.assertIn("gpt-4o-mini", models)
         self.assertIn("gpt-5-new", models)
@@ -138,11 +139,12 @@ class TestModelCatalogMerge(unittest.TestCase):
             {},
             clear=True,
         ):
-            models, _, provider_count = ModelCatalog.get_merged_with_counts(
+            models, _, provider_count, provider_error = ModelCatalog.get_merged_with_counts(
                 provider="openai", api_key="sk-x", api_base="https://api.openai.com/v1"
             )
 
         self.assertEqual(provider_count, 1)
+        self.assertIsNone(provider_error)
         self.assertEqual(models, ["gpt-4o"])
 
     @patch("trendradar.ai.model_catalog.requests.get")
@@ -159,12 +161,13 @@ class TestModelCatalogMerge(unittest.TestCase):
             {"openai/gpt-4o": {"litellm_provider": "openai"}},
             clear=True,
         ):
-            models, lite_count, provider_count = ModelCatalog.get_merged_with_counts(
+            models, lite_count, provider_count, provider_error = ModelCatalog.get_merged_with_counts(
                 provider="openai", api_key="sk-x", api_base="https://x"
             )
 
         self.assertEqual(lite_count, 1)
         self.assertEqual(provider_count, 0)
+        self.assertIsNone(provider_error)
         self.assertIn("gpt-4o", models)
 
     @patch("trendradar.ai.model_catalog.requests.get")
@@ -180,12 +183,13 @@ class TestModelCatalogMerge(unittest.TestCase):
             {"openai/gpt-4o": {"litellm_provider": "openai"}},
             clear=True,
         ):
-            models, lite_count, provider_count = ModelCatalog.get_merged_with_counts(
+            models, lite_count, provider_count, provider_error = ModelCatalog.get_merged_with_counts(
                 provider="openai", api_key="sk-x", api_base="https://x"
             )
 
         self.assertEqual(lite_count, 1)
         self.assertEqual(provider_count, 0)
+        self.assertIsNone(provider_error)
         self.assertIn("gpt-4o", models)
 
 
@@ -237,6 +241,26 @@ class TestModelCatalogErrors(unittest.TestCase):
                 provider="openai", api_key="k", api_base="https://x"
             )
         self.assertIn("网络连接失败", str(ctx.exception))
+
+    @patch("trendradar.ai.model_catalog.requests.get")
+    def test_provider_api_401_returns_error_in_merged(self, mock_get):
+        """Provider API 401 → get_merged_with_counts 返回 provider_error 字符串，models 仍可用"""
+        from trendradar.ai.model_catalog import ModelCatalog
+
+        mock_get.return_value = FakeResponse(status_code=401, text="Unauthorized")
+        with patch.dict(
+            "trendradar.ai.model_catalog.litellm.model_cost",
+            {"openai/gpt-4o": {"litellm_provider": "openai"}},
+            clear=True,
+        ):
+            models, lite_count, provider_count, provider_error = ModelCatalog.get_merged_with_counts(
+                provider="openai", api_key="bad", api_base="https://x"
+            )
+
+        self.assertEqual(lite_count, 1)
+        self.assertIn("gpt-4o", models)  # LiteLLM 部分不受影响
+        self.assertIsNotNone(provider_error)
+        self.assertIn("鉴权失败", provider_error)
 
 
 if __name__ == "__main__":
