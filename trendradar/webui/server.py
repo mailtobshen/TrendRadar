@@ -92,6 +92,8 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self._api_post_tags_preview()
         elif path == "/api/trigger":
             self._api_trigger_crawl()
+        elif path == "/api/ai/test":
+            self._api_post_ai_test()
         else:
             self._send_json(404, {"success": False, "message": "Not found"})
 
@@ -217,6 +219,50 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         result = self._trigger_crawl()
         code = 200 if result.get("success") else 409 if "运行中" in result.get("message", "") else 500
         self._send_json(code, result)
+
+    def _api_post_ai_test(self):
+        """API：测试 AI 模型连通性（使用最小 ping）"""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8")
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError as e:
+            self._send_json(200, {"success": False, "message": f"JSON 解析错误: {e}"})
+            return
+        except Exception as e:
+            self._send_json(200, {"success": False, "message": f"请求解析失败: {e}"})
+            return
+
+        model = (data.get("model") or "").strip()
+        api_key = (data.get("api_key") or "").strip()
+        api_base = (data.get("api_base") or "").strip()
+
+        if not model:
+            self._send_json(200, {"success": False, "message": "模型名称不能为空"})
+            return
+        if "/" not in model:
+            self._send_json(200, {
+                "success": False,
+                "message": "模型格式错误，应为 'provider/model' 格式",
+            })
+            return
+
+        from trendradar.ai.tester import AITester
+
+        try:
+            tester = AITester(model=model, api_key=api_key, api_base=api_base)
+            ok, message, latency_ms = tester.test()
+            self._send_json(200, {
+                "success": ok,
+                "message": message,
+                "latency_ms": latency_ms,
+            })
+        except Exception as e:
+            # 兜底：tester 内部已捕获所有异常，这里只防 import 或非预期崩溃
+            self._send_json(200, {
+                "success": False,
+                "message": f"测试出错: {type(e).__name__}: {str(e)[:200]}",
+            })
 
     def _api_get_tags(self):
         """API：读取当前数据库中的 active 标签"""
