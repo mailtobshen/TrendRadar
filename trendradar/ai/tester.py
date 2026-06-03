@@ -34,6 +34,10 @@ class AITester:
         api_base: str = "",
         timeout: int = PING_TIMEOUT,
     ):
+        # 运行时向后兼容：老调用传 model="provider/model" 拼接字符串。
+        # 当 provider 是默认值且 model 含 "/" 时自动拆分。
+        if "/" in model and provider == "openai":
+            provider, model = model.split("/", 1)
         self.model = model
         self.provider = provider
         self.api_key = api_key

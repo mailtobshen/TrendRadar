@@ -21,7 +21,8 @@ class AIClient:
 
         Args:
             config: AI 配置字典
-                - MODEL: 模型标识（格式: provider/model_name）
+                - PROVIDER: 提供商标识（如 openai、anthropic、minimax），默认 "openai"
+                - MODEL: 模型名称（纯名，不含 provider 前缀）
                 - API_KEY: API 密钥
                 - API_BASE: API 基础 URL（可选）
                 - TEMPERATURE: 采样温度
@@ -29,9 +30,19 @@ class AIClient:
                 - TIMEOUT: 请求超时时间（秒）
                 - NUM_RETRIES: 重试次数（可选）
                 - FALLBACK_MODELS: 备用模型列表（可选）
+
+        Note:
+            向后兼容：若 MODEL 含 "/" 而 PROVIDER 显式为默认 "openai"，
+            自动拆分为 provider + 纯 model 名（Task 3 加载时迁移前的运行时兜底）。
         """
         self.provider = config.get("PROVIDER", "openai")
         self.model = config.get("MODEL", "")
+        # 运行时向后兼容：老配置 MODEL 仍为 "provider/model" 拼接格式。
+        # 当 PROVIDER 是默认值（用户未显式设）且 MODEL 含 "/" 时，
+        # 自动拆分以避免 LiteLLM 路由到错误的 adapter。
+        # Task 3 加载时迁移完成后，此分支会变成 no-op。
+        if "/" in self.model and self.provider == "openai" and "PROVIDER" not in config:
+            self.provider, self.model = self.model.split("/", 1)
         self.api_key = config.get("API_KEY") or os.environ.get("AI_API_KEY", "")
         self.api_base = config.get("API_BASE", "")
         self.temperature = config.get("TEMPERATURE", 1.0)
