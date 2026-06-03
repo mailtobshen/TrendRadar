@@ -417,12 +417,9 @@ def render_config_page() -> str:
                             onchange="updateConfig('ai.num_retries', parseInt(this.value)||1)">
                     </div>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <button class="btn btn-sm btn-secondary" id="ai-test-btn" onclick="testAiConnection()">测试连接</button>
-                        <span id="ai-test-status" class="rss-test-status"></span>
-                        <span class="optional" style="margin-left: 8px;">使用当前填写的值，不会保存</span>
-                    </div>
+                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px;">
+                    <span id="ai-test-status" class="rss-test-status"></span>
+                    <button class="btn btn-sm btn-secondary" id="ai-test-btn" onclick="testAiConnection()">测试连接</button>
                 </div>
             </div>
 
