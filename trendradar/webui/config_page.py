@@ -395,6 +395,7 @@ def render_config_page() -> str:
                             <option value="bedrock">bedrock (AWS Bedrock)</option>
                             <option value="vertex_ai">vertex_ai (Google Cloud)</option>
                             <option value="azure">azure (Azure OpenAI)</option>
+                            <option value="ollama">ollama (本地 Ollama)</option>
                         </select>
                     </div>
                     <div class="form-group half">
