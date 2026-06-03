@@ -417,6 +417,13 @@ def render_config_page() -> str:
                             onchange="updateConfig('ai.num_retries', parseInt(this.value)||1)">
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <button class="btn btn-sm btn-secondary" id="ai-test-btn" onclick="testAiConnection()">测试连接</button>
+                        <span id="ai-test-status" class="rss-test-status"></span>
+                        <span class="optional" style="margin-left: 8px;">使用当前填写的值，不会保存</span>
+                    </div>
+                </div>
             </div>
 
             <div class="section">
@@ -1251,6 +1258,50 @@ def render_config_page() -> str:
             feeds.splice(index, 1);
             updateConfig('rss.feeds', feeds);
             renderRssFeeds(feeds);
+        }
+
+
+        async function testAiConnection() {
+            const model = document.getElementById('ai-model').value.trim();
+            const apiKey = document.getElementById('ai-api-key').value.trim();
+            const apiBase = document.getElementById('ai-api-base').value.trim();
+
+            if (!model) {
+                showToast('请先填写模型名称', 'error');
+                return;
+            }
+            if (!model.includes('/')) {
+                showToast('模型格式应为 provider/model（例如 deepseek/deepseek-chat）', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('ai-test-btn');
+            const statusEl = document.getElementById('ai-test-status');
+            btn.disabled = true;
+            statusEl.textContent = '测试中...';
+            statusEl.className = 'rss-test-status testing';
+
+            try {
+                const res = await fetch('/api/ai/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({model: model, api_key: apiKey, api_base: apiBase})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const ms = data.latency_ms != null ? `（${data.latency_ms}ms）` : '';
+                    statusEl.textContent = '✅ 连接成功 ' + ms;
+                    statusEl.className = 'rss-test-status success';
+                } else {
+                    statusEl.textContent = '❌ ' + (data.message || '测试失败');
+                    statusEl.className = 'rss-test-status error';
+                }
+            } catch (e) {
+                statusEl.textContent = '❌ 网络错误';
+                statusEl.className = 'rss-test-status error';
+            } finally {
+                btn.disabled = false;
+            }
         }
 
         // 显示区域
