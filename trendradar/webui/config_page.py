@@ -946,7 +946,7 @@ def render_config_page() -> str:
                 pSel.value = 'openai';  // 默认
             }
             if (ai.model) {
-                mSel.innerHTML = `<option value="${ai.model}">${ai.model} (已保存)</option>`;
+                mSel.innerHTML = `<option value="${esc(ai.model)}">${esc(ai.model)} (已保存)</option>`;
                 mSel.value = ai.model;
             }
 
@@ -1409,11 +1409,11 @@ def render_config_page() -> str:
                         showToast(`LiteLLM catalog: ${models.length} 个模型`, 'info');
                     }
                 } else {
-                    sel.innerHTML = `<option value="${prevValue}">${prevValue || '加载失败'}</option>`;
+                    sel.innerHTML = `<option value="${esc(prevValue)}">${esc(prevValue) || '加载失败'}</option>`;
                     showToast('❌ ' + (data.message || '加载失败'), 'error');
                 }
             } catch (e) {
-                sel.innerHTML = `<option value="${prevValue}">${prevValue || '加载失败'}</option>`;
+                sel.innerHTML = `<option value="${esc(prevValue)}">${esc(prevValue) || '加载失败'}</option>`;
                 showToast('❌ 网络错误', 'error');
             } finally {
                 btn.disabled = false;
@@ -1423,7 +1423,7 @@ def render_config_page() -> str:
         function renderModelOptions(models, restoreValue) {
             const sel = document.getElementById('ai-model');
             const opts = ['<option value="">-- 请选择 --</option>']
-                .concat(models.map(m => `<option value="${m}">${m}</option>`));
+                .concat(models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`));
             if (restoreValue && !models.includes(restoreValue)) {
                 opts.splice(1, 0, `<option value="${restoreValue}">${restoreValue} (自定义)</option>`);
             }
