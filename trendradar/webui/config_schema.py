@@ -291,16 +291,22 @@ def load_structured_config(config_path: Path) -> Dict[str, Any]:
                 result["platforms"]["sources"].append({"id": p["id"], "name": p["name"], "enabled": True})
 
     # 处理 ai 段：拆分老格式 "provider/model"（向后兼容）
+    # 注意：必须在 _deep_merge 完成之后跑，但要用 raw["ai"] 检测用户是否显式设了 provider
+    # 因为 _deep_merge 已经从默认值填了 provider="openai"，直接检查 result["ai"]["provider"]
+    # 永远为 truthy，分支进不去。
     if "ai" in result and isinstance(result["ai"], dict):
         ai = result["ai"]
         model = ai.get("model", "")
-        # 老格式: "provider/model" + 无 provider 字段 → 拆分
-        if isinstance(model, str) and "/" in model and not ai.get("provider"):
+        raw_ai = raw.get("ai", {}) if isinstance(raw.get("ai"), dict) else {}
+        user_had_provider = "provider" in raw_ai
+        # 老格式: "provider/model" + 用户未显式设 provider → 拆分
+        if isinstance(model, str) and "/" in model and not user_had_provider:
             parts = model.split("/", 1)
             ai["provider"] = parts[0]
             ai["model"] = parts[1]
-        # 缺失 provider 时默认 openai
-        if not ai.get("provider"):
+        # 用户未提供 provider 且 model 也没 / 时才默认 openai
+        # （用 elif 避免拆出来的 provider 被覆盖成 openai）
+        elif not user_had_provider:
             ai["provider"] = "openai"
 
     return result
