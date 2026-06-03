@@ -943,9 +943,14 @@ def render_config_page() -> str:
                     loadModelsForProvider(savedProvider).then(() => {
                         if (savedModel) {
                             const mSel = document.getElementById('ai-model');
-                            if ([...mSel.options].some(o => o.value === savedModel)) {
-                                mSel.value = savedModel;
+                            // 如果 catalog 不含已保存的 model，添加为 (自定义) 选项
+                            if (![...mSel.options].some(o => o.value === savedModel)) {
+                                const opt = document.createElement('option');
+                                opt.value = savedModel;
+                                opt.textContent = `${savedModel} (自定义)`;
+                                mSel.insertBefore(opt, mSel.options[1]);
                             }
+                            mSel.value = savedModel;
                         }
                     });
                 }
