@@ -299,23 +299,32 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         from trendradar.ai.model_catalog import ModelCatalog, ProviderAPIError
 
         try:
+            # 1. 先合并 LiteLLM + provider 列表（provider 失败不影响 LiteLLM 部分）
             models, lite_count, provider_count = ModelCatalog.get_merged_with_counts(
                 provider=provider, api_key=api_key, api_base=api_base
             )
+
+            # 2. 单独探测 provider API 是否出错，用于前端 toast
+            provider_error = None
+            if api_key and api_base:
+                try:
+                    ModelCatalog._fetch_provider_models(
+                        provider=provider, api_key=api_key, api_base=api_base
+                    )
+                except ProviderAPIError as e:
+                    provider_error = e.user_message
+
             import time
-            self._send_json(200, {
+            response = {
                 "success": True,
                 "models": models,
                 "lite_count": lite_count,
                 "provider_count": provider_count,
                 "fetched_at": int(time.time()),
-            })
-        except ProviderAPIError as e:
-            self._send_json(200, {
-                "success": False,
-                "message": e.user_message,
-                "models": [],
-            })
+            }
+            if provider_error:
+                response["provider_error"] = provider_error
+            self._send_json(200, response)
         except Exception as e:
             self._send_json(200, {
                 "success": False,
