@@ -163,6 +163,34 @@ class TestAITesterErrors(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(message, "模型返回空响应")
 
+    @patch("trendradar.ai.tester.completion")
+    def test_401_wrapped_as_api_connection_error_is_reclassified(self, mock_completion):
+        """
+        回归测试：MiniMax 等 provider 把 401 auth error 包装为 APIConnectionError 时，
+        _friendly_message 应基于消息内容重新分类为鉴权失败。
+        """
+        from trendradar.ai.tester import AITester
+
+        # 模拟 MiniMax 的非标准 401 响应（被 LiteLLM 包装为 APIConnectionError）
+        fake_msg = (
+            'MinimaxException - {"type":"error","error":{'
+            '"type":"authorized_error","message":"login fail: '
+            'Please carry the API secret key in the \'Authorization\' '
+            'field of the request header (1004)","http_code":"401"}}'
+        )
+        mock_completion.side_effect = APIConnectionError(
+            message=fake_msg, llm_provider="minimax", model="minimax/MiniMax-Text-01"
+        )
+        tester = AITester(
+            model="minimax/MiniMax-Text-01",
+            api_key="sk-fake",
+            api_base="https://api.minimaxi.com/v1",
+        )
+        ok, message, _ = tester.test()
+
+        self.assertFalse(ok)
+        self.assertIn("鉴权失败", message)
+
 
 if __name__ == "__main__":
     unittest.main()

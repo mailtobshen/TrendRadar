@@ -75,13 +75,38 @@ class AITester:
             return False, _friendly_message(e, self.model, self.api_base), elapsed_ms
 
 
+def _looks_like_auth_error(exc: Exception) -> bool:
+    """
+    当 LiteLLM 把 401/403 auth 错误包装为非标准异常类型时（常见于 MiniMax、
+    自建网关等），通过消息内容判断是否为鉴权错误。
+    """
+    msg = str(exc).lower()
+    # 强指示器
+    strong = [
+        "login fail",
+        "authorized_error",
+        "unauthorized",
+        "invalid api key",
+    ]
+    if any(s in msg for s in strong):
+        return True
+    # 401/403 状态码（多种格式都要匹配）
+    if '"http_code":"401"' in msg or '"http_code":"403"' in msg:
+        return True
+    if " status 401" in msg or " status 403" in msg or " status: 401" in msg or " status: 403" in msg:
+        return True
+    if "http 401" in msg or "http 403" in msg:
+        return True
+    return False
+
+
 def _friendly_message(exc: Exception, model: str, api_base: str) -> str:
     """
     把 LiteLLM/网络/未知异常归一为用户可读的中文短句。
 
     优先级：鉴权 > 模型不存在 > 超时 > 网络 > 其它
     """
-    if isinstance(exc, AuthenticationError):
+    if isinstance(exc, AuthenticationError) or _looks_like_auth_error(exc):
         return "鉴权失败：API Key 无效或已过期"
     if isinstance(exc, NotFoundError):
         return f"模型不存在：{model}"
