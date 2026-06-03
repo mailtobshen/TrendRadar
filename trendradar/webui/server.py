@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -296,25 +297,13 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"success": False, "message": "provider 不能为空"})
             return
 
-        from trendradar.ai.model_catalog import ModelCatalog, ProviderAPIError
+        from trendradar.ai.model_catalog import ModelCatalog
 
         try:
-            # 1. 先合并 LiteLLM + provider 列表（provider 失败不影响 LiteLLM 部分）
-            models, lite_count, provider_count = ModelCatalog.get_merged_with_counts(
+            # 单次调用：合并 LiteLLM + provider，并返回 provider 错误（如有）
+            models, lite_count, provider_count, provider_error = ModelCatalog.get_merged_with_counts(
                 provider=provider, api_key=api_key, api_base=api_base
             )
-
-            # 2. 单独探测 provider API 是否出错，用于前端 toast
-            provider_error = None
-            if api_key and api_base:
-                try:
-                    ModelCatalog._fetch_provider_models(
-                        provider=provider, api_key=api_key, api_base=api_base
-                    )
-                except ProviderAPIError as e:
-                    provider_error = e.user_message
-
-            import time
             response = {
                 "success": True,
                 "models": models,
@@ -334,6 +323,16 @@ class WebUIHandler(SimpleHTTPRequestHandler):
 
     def _api_post_ai_providers(self):
         """API：返回 LiteLLM 支持的所有 provider slug 列表"""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > 8 * 1024:
+                self._send_json(200, {"success": False, "message": "请求体过大（最大 8KB）"})
+                return
+            body = self.rfile.read(content_length).decode("utf-8") if content_length else "{}"
+        except Exception as e:
+            self._send_json(200, {"success": False, "message": f"请求解析失败: {e}", "providers": []})
+            return
+
         try:
             from trendradar.ai.model_catalog import ModelCatalog
             providers = sorted(ModelCatalog.list_providers())
