@@ -252,6 +252,15 @@ def render_config_page() -> str:
         .toast.show { transform: translateX(0); }
         .toast.success { background: #22c55e; }
         .toast.error { background: #ef4444; }
+        .btn-icon {
+            width: 28px; height: 28px; padding: 0;
+            border-radius: 6px; font-size: 14px;
+            background: #f3f4f6; border: 1px solid #e5e5e5;
+            cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center;
+        }
+        .btn-icon:hover { background: #e5e7eb; }
+        .btn-icon:disabled { opacity: 0.5; cursor: not-allowed; }
         .toast.info { background: #4f46e5; }
         .validation-errors {
             background: #fef2f2; border: 1px solid #fecaca;
@@ -377,10 +386,20 @@ def render_config_page() -> str:
                 <div class="section-title">AI 模型配置</div>
                 <div class="section-desc">ai_analysis / ai_translation / ai_filter 共用此模型配置</div>
                 <div class="form-row">
-                    <div class="form-group full">
-                        <label class="form-label">模型名称 <span class="optional">格式: provider/model_name</span></label>
-                        <input type="text" id="ai-model" placeholder="deepseek/deepseek-chat"
-                            onchange="updateConfig('ai.model', this.value)">
+                    <div class="form-group half">
+                        <label class="form-label">Provider</label>
+                        <select id="ai-provider" onchange="onProviderChange()">
+                            <option value="">加载中...</option>
+                        </select>
+                    </div>
+                    <div class="form-group half">
+                        <label class="form-label">模型名称</label>
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <select id="ai-model" onchange="updateConfig('ai.model', joinModel())" style="flex: 1;">
+                                <option value="">先选 provider</option>
+                            </select>
+                            <button type="button" class="btn-icon" id="ai-model-refresh" onclick="refreshAiModels()" title="从 provider API 刷新模型列表">↻</button>
+                        </div>
                     </div>
                 </div>
                 <div class="form-row">
@@ -906,13 +925,31 @@ def render_config_page() -> str:
 
             // AI
             const ai = getValue('ai') || {};
-            setInput('ai-model', ai.model);
             setInput('ai-api-key', ai.api_key);
             setInput('ai-api-base', ai.api_base);
             setInput('ai-timeout', ai.timeout);
             setInput('ai-temperature', ai.temperature);
             setInput('ai-max-tokens', ai.max_tokens);
             setInput('ai-num-retries', ai.num_retries);
+
+            // Provider + Model 下拉（异步初始化）
+            const [savedProvider, savedModel] = splitModel(ai.model || '');
+            initAiProviderList().then(() => {
+                const pSel = document.getElementById('ai-provider');
+                if (savedProvider && [...pSel.options].some(o => o.value === savedProvider)) {
+                    pSel.value = savedProvider;
+                }
+                if (savedProvider) {
+                    loadModelsForProvider(savedProvider, /* preserve */ true).then(() => {
+                        if (savedModel) {
+                            const mSel = document.getElementById('ai-model');
+                            if ([...mSel.options].some(o => o.value === savedModel)) {
+                                mSel.value = savedModel;
+                            }
+                        }
+                    });
+                }
+            });
 
             // AI 分析
             const aiAnalysis = getValue('ai_analysis') || {};
@@ -1299,6 +1336,122 @@ def render_config_page() -> str:
             } finally {
                 btn.disabled = false;
             }
+        }
+
+        // === AI 模型下拉相关 ===
+
+        function joinModel() {
+            const p = document.getElementById('ai-provider').value;
+            const m = document.getElementById('ai-model').value;
+            return p && m ? `${p}/${m}` : '';
+        }
+
+        function splitModel(s) {
+            if (!s || !s.includes('/')) return ['', s || ''];
+            const idx = s.indexOf('/');
+            return [s.substring(0, idx), s.substring(idx + 1)];
+        }
+
+        async function initAiProviderList() {
+            try {
+                const res = await fetch('/api/ai/providers');
+                const data = await res.json();
+                const sel = document.getElementById('ai-provider');
+                if (!data.success) {
+                    sel.innerHTML = '<option value="">加载失败</option>';
+                    return;
+                }
+                const top = ['openai','anthropic','gemini','deepseek','minimax','qwen','moonshot','mistral','xai','groq'];
+                const all = data.providers;
+                const topInAll = top.filter(p => all.includes(p));
+                const rest = all.filter(p => !topInAll.includes(p)).sort();
+                const ordered = [...topInAll, ...rest];
+                sel.innerHTML = '<option value="">-- 请选择 --</option>' +
+                    ordered.map(p => `<option value="${p}">${p}</option>`).join('');
+            } catch (e) {
+                document.getElementById('ai-provider').innerHTML = '<option value="">加载失败</option>';
+            }
+        }
+
+        async function onProviderChange() {
+            const provider = document.getElementById('ai-provider').value;
+            updateConfig('ai.model', joinModel());
+            if (!provider) return;
+            await loadModelsForProvider(provider, /* preserveCurrent */ true);
+        }
+
+        async function loadModelsForProvider(provider, preserveCurrent) {
+            const sel = document.getElementById('ai-model');
+            sel.innerHTML = '<option value="">加载中...</option>';
+            try {
+                const res = await fetch('/api/ai/models', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({provider: provider})
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    sel.innerHTML = `<option value="">${data.message || '加载失败'}</option>`;
+                    return;
+                }
+                renderModelOptions(data.models, preserveCurrent);
+            } catch (e) {
+                sel.innerHTML = '<option value="">网络错误</option>';
+            }
+        }
+
+        async function refreshAiModels() {
+            const provider = document.getElementById('ai-provider').value;
+            const apiKey = document.getElementById('ai-api-key').value.trim();
+            const apiBase = document.getElementById('ai-api-base').value.trim();
+            if (!provider) { showToast('请先选择 Provider', 'error'); return; }
+            if (!apiBase) { showToast('请先填写 API 基础地址', 'error'); return; }
+
+            const btn = document.getElementById('ai-model-refresh');
+            const sel = document.getElementById('ai-model');
+            const prevValue = sel.value;
+            btn.disabled = true;
+            sel.innerHTML = '<option value="">刷新中...</option>';
+
+            try {
+                const res = await fetch('/api/ai/models', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({provider, api_key: apiKey, api_base: apiBase})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    renderModelOptions(data.models, /* preserve */ false);
+                    sel.value = prevValue;
+                    if (data.provider_error) {
+                        showToast('❌ ' + data.provider_error, 'error');
+                    } else {
+                        const added = (data.provider_count || 0);
+                        const suffix = added > 0 ? `（+${added} 来自 provider）` : '';
+                        showToast(`已刷新 ${data.models.length} 个模型${suffix}`, 'success');
+                    }
+                } else {
+                    sel.innerHTML = `<option value="${prevValue}">${prevValue}</option>`;
+                    showToast('❌ ' + (data.message || '刷新失败'), 'error');
+                }
+            } catch (e) {
+                sel.innerHTML = `<option value="${prevValue}">${prevValue}</option>`;
+                showToast('❌ 网络错误', 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function renderModelOptions(models, preserveCurrent) {
+            const sel = document.getElementById('ai-model');
+            const currentVal = preserveCurrent ? sel.value : '';
+            const opts = ['<option value="">-- 请选择 --</option>']
+                .concat(models.map(m => `<option value="${m}">${m}</option>`));
+            if (currentVal && !models.includes(currentVal)) {
+                opts.splice(1, 0, `<option value="${currentVal}">${currentVal} (自定义)</option>`);
+            }
+            sel.innerHTML = opts.join('');
+            if (currentVal) sel.value = currentVal;
         }
 
         // 显示区域
