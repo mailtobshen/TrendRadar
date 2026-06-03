@@ -1296,16 +1296,12 @@ def render_config_page() -> str:
 
 
         async function testAiConnection() {
-            const model = document.getElementById('ai-model').value.trim();
+            const model = joinModel();
             const apiKey = document.getElementById('ai-api-key').value.trim();
             const apiBase = document.getElementById('ai-api-base').value.trim();
 
             if (!model) {
-                showToast('请先填写模型名称', 'error');
-                return;
-            }
-            if (!model.includes('/')) {
-                showToast('模型格式应为 provider/model（例如 deepseek/deepseek-chat）', 'error');
+                showToast('请先选择 Provider 和模型', 'error');
                 return;
             }
 
