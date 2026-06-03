@@ -29,11 +29,13 @@ class AITester:
     def __init__(
         self,
         model: str,
+        provider: str = "openai",
         api_key: str = "",
         api_base: str = "",
         timeout: int = PING_TIMEOUT,
     ):
         self.model = model
+        self.provider = provider
         self.api_key = api_key
         self.api_base = api_base
         self.timeout = timeout
@@ -51,7 +53,7 @@ class AITester:
         start = time.monotonic()
         try:
             params = {
-                "model": self.model,
+                "model": f"{self.provider}/{self.model}",
                 "messages": [{"role": "user", "content": self.PING_PROMPT}],
                 "max_tokens": self.PING_MAX_TOKENS,
                 "timeout": self.timeout,
@@ -81,7 +83,6 @@ def _looks_like_auth_error(exc: Exception) -> bool:
     自建网关等），通过消息内容判断是否为鉴权错误。
     """
     msg = str(exc).lower()
-    # 强指示器
     strong = [
         "login fail",
         "authorized_error",
@@ -90,7 +91,6 @@ def _looks_like_auth_error(exc: Exception) -> bool:
     ]
     if any(s in msg for s in strong):
         return True
-    # 401/403 状态码（多种格式都要匹配）
     if '"http_code":"401"' in msg or '"http_code":"403"' in msg:
         return True
     if " status 401" in msg or " status 403" in msg or " status: 401" in msg or " status: 403" in msg:
@@ -115,6 +115,5 @@ def _friendly_message(exc: Exception, model: str, api_base: str) -> str:
     if isinstance(exc, APIConnectionError):
         host = api_base or "默认端点"
         return f"网络连接失败：{host}"
-    # 其它异常（如 RateLimitError、ServiceUnavailableError、未分类）
     raw = str(exc).strip() or exc.__class__.__name__
     return f"测试失败: {type(exc).__name__}: {raw[:200]}"

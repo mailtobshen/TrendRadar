@@ -33,7 +33,12 @@ class TestAITesterSuccess(unittest.TestCase):
         from trendradar.ai.tester import AITester
 
         mock_completion.return_value = FakeResponse(content="hi")
-        tester = AITester(model="deepseek/deepseek-chat", api_key="sk-test", api_base="")
+        tester = AITester(
+            provider="deepseek",
+            model="deepseek-chat",
+            api_key="sk-test",
+            api_base="",
+        )
         ok, message, latency = tester.test()
 
         self.assertTrue(ok)
@@ -47,7 +52,9 @@ class TestAITesterSuccess(unittest.TestCase):
         from trendradar.ai.tester import AITester
 
         mock_completion.return_value = FakeResponse()
-        tester = AITester(model="openai/gpt-4o-mini", api_key="sk-x", api_base="")
+        tester = AITester(
+            provider="openai", model="gpt-4o-mini", api_key="sk-x", api_base=""
+        )
         tester.test()
 
         call = mock_completion.call_args
@@ -68,7 +75,7 @@ class TestAITesterOptionalFields(unittest.TestCase):
         from trendradar.ai.tester import AITester
 
         mock_completion.return_value = FakeResponse()
-        tester = AITester(model="x/y", api_key="", api_base="")
+        tester = AITester(provider="x", model="y", api_key="", api_base="")
         tester.test()
 
         params = mock_completion.call_args.kwargs
@@ -82,7 +89,10 @@ class TestAITesterOptionalFields(unittest.TestCase):
 
         mock_completion.return_value = FakeResponse()
         tester = AITester(
-            model="x/y", api_key="sk-x", api_base="https://api.example.com/v1"
+            provider="x",
+            model="y",
+            api_key="sk-x",
+            api_base="https://api.example.com/v1",
         )
         tester.test()
 
@@ -99,7 +109,7 @@ class TestAITesterErrors(unittest.TestCase):
         mock_completion.side_effect = AuthenticationError(
             message="invalid api key", llm_provider="openai", model="x/y"
         )
-        tester = AITester(model="x/y", api_key="bad", api_base="")
+        tester = AITester(provider="x", model="y", api_key="bad", api_base="")
         ok, message, _ = tester.test()
 
         self.assertFalse(ok)
@@ -113,7 +123,7 @@ class TestAITesterErrors(unittest.TestCase):
         mock_completion.side_effect = NotFoundError(
             message="model not found", llm_provider="openai", model="bad/name"
         )
-        tester = AITester(model="bad/name", api_key="sk-x", api_base="")
+        tester = AITester(provider="bad", model="name", api_key="sk-x", api_base="")
         ok, message, _ = tester.test()
 
         self.assertFalse(ok)
@@ -127,7 +137,7 @@ class TestAITesterErrors(unittest.TestCase):
         mock_completion.side_effect = Timeout(
             message="timed out", llm_provider="openai", model="x/y"
         )
-        tester = AITester(model="x/y", api_key="sk-x", api_base="")
+        tester = AITester(provider="x", model="y", api_key="sk-x", api_base="")
         ok, message, _ = tester.test()
 
         self.assertFalse(ok)
@@ -144,7 +154,10 @@ class TestAITesterErrors(unittest.TestCase):
             llm_provider="openai",
         )
         tester = AITester(
-            model="x/y", api_key="sk-x", api_base="https://api.example.com/v1"
+            provider="x",
+            model="y",
+            api_key="sk-x",
+            api_base="https://api.example.com/v1",
         )
         ok, message, _ = tester.test()
 
@@ -157,7 +170,7 @@ class TestAITesterErrors(unittest.TestCase):
         from trendradar.ai.tester import AITester
 
         mock_completion.return_value = FakeResponse(choices=[])
-        tester = AITester(model="x/y", api_key="sk-x", api_base="")
+        tester = AITester(provider="x", model="y", api_key="sk-x", api_base="")
         ok, message, _ = tester.test()
 
         self.assertFalse(ok)
@@ -182,7 +195,8 @@ class TestAITesterErrors(unittest.TestCase):
             message=fake_msg, llm_provider="minimax", model="minimax/MiniMax-Text-01"
         )
         tester = AITester(
-            model="minimax/MiniMax-Text-01",
+            provider="minimax",
+            model="MiniMax-Text-01",
             api_key="sk-fake",
             api_base="https://api.minimaxi.com/v1",
         )

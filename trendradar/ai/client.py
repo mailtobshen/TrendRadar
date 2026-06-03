@@ -30,7 +30,8 @@ class AIClient:
                 - NUM_RETRIES: 重试次数（可选）
                 - FALLBACK_MODELS: 备用模型列表（可选）
         """
-        self.model = config.get("MODEL", "deepseek/deepseek-chat")
+        self.provider = config.get("PROVIDER", "openai")
+        self.model = config.get("MODEL", "")
         self.api_key = config.get("API_KEY") or os.environ.get("AI_API_KEY", "")
         self.api_base = config.get("API_BASE", "")
         self.temperature = config.get("TEMPERATURE", 1.0)
@@ -59,7 +60,7 @@ class AIClient:
         """
         # 构建请求参数
         params = {
-            "model": self.model,
+            "model": f"{self.provider}/{self.model}",
             "messages": messages,
             "temperature": kwargs.get("temperature", self.temperature),
             "timeout": kwargs.get("timeout", self.timeout),
@@ -93,13 +94,22 @@ class AIClient:
 
         # 提取响应内容
         # 某些模型/提供商返回 list（内容块）而非 str，统一转为 str
-        content = response.choices[0].message.content
+        if not response.choices:
+            raise ValueError("AI 返回空选择列表（choices），可能原因：模型拒绝回答或内容被过滤")
+        message = response.choices[0].message
+        if not message:
+            raise ValueError("AI 返回空消息（message），可能原因：模型拒绝回答或内容被过滤")
+        content = message.content
+        if content is None:
+            raise ValueError("AI 返回空内容（content is None），可能原因：模型拒绝回答或内容被过滤")
         if isinstance(content, list):
             content = "\n".join(
                 item.get("text", str(item)) if isinstance(item, dict) else str(item)
                 for item in content
             )
-        return content or ""
+        if content is None or (isinstance(content, str) and not content.strip()):
+            raise ValueError("AI 返回空内容，可能原因：模型拒绝回答、内容被过滤或达到输出长度限制")
+        return content
 
     def validate_config(self) -> tuple[bool, str]:
         """
@@ -108,14 +118,13 @@ class AIClient:
         Returns:
             tuple: (是否有效, 错误信息)
         """
+        if not self.provider:
+            return False, "未配置 AI Provider（provider）"
+
         if not self.model:
             return False, "未配置 AI 模型（model）"
 
         if not self.api_key:
             return False, "未配置 AI API Key，请在 config.yaml 或环境变量 AI_API_KEY 中设置"
-
-        # 验证模型格式（应该包含 provider/model）
-        if "/" not in self.model:
-            return False, f"模型格式错误: {self.model}，应为 'provider/model' 格式（如 'deepseek/deepseek-chat'）"
 
         return True, ""
