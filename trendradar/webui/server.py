@@ -224,6 +224,9 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         """API：测试 AI 模型连通性（使用最小 ping）"""
         try:
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > 8 * 1024:
+                self._send_json(200, {"success": False, "message": "请求体过大（最大 8KB）"})
+                return
             body = self.rfile.read(content_length).decode("utf-8")
             data = json.loads(body) if body else {}
         except json.JSONDecodeError as e:
@@ -262,6 +265,7 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {
                 "success": False,
                 "message": f"测试出错: {type(e).__name__}: {str(e)[:200]}",
+                "latency_ms": 0,
             })
 
     def _api_get_tags(self):
