@@ -94,6 +94,10 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self._api_trigger_crawl()
         elif path == "/api/ai/test":
             self._api_post_ai_test()
+        elif path == "/api/ai/models":
+            self._api_post_ai_models()
+        elif path == "/api/ai/providers":
+            self._api_post_ai_providers()
         else:
             self._send_json(404, {"success": False, "message": "Not found"})
 
@@ -266,6 +270,73 @@ class WebUIHandler(SimpleHTTPRequestHandler):
                 "success": False,
                 "message": f"测试出错: {type(e).__name__}: {str(e)[:200]}",
                 "latency_ms": 0,
+            })
+
+    def _api_post_ai_models(self):
+        """API：返回 provider 的模型清单（LiteLLM catalog + provider API 合并）"""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > 8 * 1024:
+                self._send_json(200, {"success": False, "message": "请求体过大（最大 8KB）"})
+                return
+            body = self.rfile.read(content_length).decode("utf-8")
+            data = json.loads(body) if body else {}
+        except json.JSONDecodeError as e:
+            self._send_json(200, {"success": False, "message": f"JSON 解析错误: {e}"})
+            return
+        except Exception as e:
+            self._send_json(200, {"success": False, "message": f"请求解析失败: {e}"})
+            return
+
+        provider = (data.get("provider") or "").strip()
+        api_key = (data.get("api_key") or "").strip()
+        api_base = (data.get("api_base") or "").strip()
+
+        if not provider:
+            self._send_json(200, {"success": False, "message": "provider 不能为空"})
+            return
+
+        from trendradar.ai.model_catalog import ModelCatalog, ProviderAPIError
+
+        try:
+            models, lite_count, provider_count = ModelCatalog.get_merged_with_counts(
+                provider=provider, api_key=api_key, api_base=api_base
+            )
+            import time
+            self._send_json(200, {
+                "success": True,
+                "models": models,
+                "lite_count": lite_count,
+                "provider_count": provider_count,
+                "fetched_at": int(time.time()),
+            })
+        except ProviderAPIError as e:
+            self._send_json(200, {
+                "success": False,
+                "message": e.user_message,
+                "models": [],
+            })
+        except Exception as e:
+            self._send_json(200, {
+                "success": False,
+                "message": f"查询出错: {type(e).__name__}: {str(e)[:200]}",
+                "models": [],
+            })
+
+    def _api_post_ai_providers(self):
+        """API：返回 LiteLLM 支持的所有 provider slug 列表"""
+        try:
+            from trendradar.ai.model_catalog import ModelCatalog
+            providers = sorted(ModelCatalog.list_providers())
+            self._send_json(200, {
+                "success": True,
+                "providers": providers,
+            })
+        except Exception as e:
+            self._send_json(200, {
+                "success": False,
+                "message": f"加载 provider 列表失败: {type(e).__name__}: {str(e)[:200]}",
+                "providers": [],
             })
 
     def _api_get_tags(self):
