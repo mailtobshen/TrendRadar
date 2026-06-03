@@ -5,9 +5,8 @@ AITester 单测
 使用 unittest + unittest.mock 隔离 litellm.completion 的真实网络调用。
 """
 
-import time
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from litellm import APIConnectionError, AuthenticationError, NotFoundError, Timeout
 
@@ -133,6 +132,24 @@ class TestAITesterErrors(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("请求超时（30s）", message)
+
+    @patch("trendradar.ai.tester.completion")
+    def test_api_connection_error_message(self, mock_completion):
+        """网络连接失败：message 包含"网络连接失败" """
+        from trendradar.ai.tester import AITester
+
+        mock_completion.side_effect = APIConnectionError(
+            message="connection refused",
+            model="x/y",
+            llm_provider="openai",
+        )
+        tester = AITester(
+            model="x/y", api_key="sk-x", api_base="https://api.example.com/v1"
+        )
+        ok, message, _ = tester.test()
+
+        self.assertFalse(ok)
+        self.assertIn("网络连接失败", message)
 
     @patch("trendradar.ai.tester.completion")
     def test_empty_choices_message(self, mock_completion):

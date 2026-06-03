@@ -7,7 +7,7 @@ AI 模型连通性测试模块
 """
 
 import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 from litellm import completion
 from litellm.exceptions import (
