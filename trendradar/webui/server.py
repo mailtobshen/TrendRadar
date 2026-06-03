@@ -241,24 +241,29 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"success": False, "message": f"请求解析失败: {e}"})
             return
 
+        provider = (data.get("provider") or "openai").strip()
         model = (data.get("model") or "").strip()
         api_key = (data.get("api_key") or "").strip()
         api_base = (data.get("api_base") or "").strip()
 
+        if not provider:
+            self._send_json(200, {"success": False, "message": "provider 不能为空"})
+            return
         if not model:
-            self._send_json(200, {"success": False, "message": "模型名称不能为空"})
+            self._send_json(200, {"success": False, "message": "model 不能为空"})
             return
-        if "/" not in model:
-            self._send_json(200, {
-                "success": False,
-                "message": "模型格式错误，应为 'provider/model' 格式",
-            })
-            return
+
+        # 防御性：如果 model 仍含 '/'，自动拆分（前端不会产生，仅防老客户端）
+        if "/" in model:
+            parts = model.split("/", 1)
+            if not data.get("provider"):
+                provider = parts[0]
+            model = parts[1]
 
         from trendradar.ai.tester import AITester
 
         try:
-            tester = AITester(model=model, api_key=api_key, api_base=api_base)
+            tester = AITester(provider=provider, model=model, api_key=api_key, api_base=api_base)
             ok, message, latency_ms = tester.test()
             self._send_json(200, {
                 "success": ok,
@@ -270,7 +275,6 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {
                 "success": False,
                 "message": f"测试出错: {type(e).__name__}: {str(e)[:200]}",
-                "latency_ms": 0,
             })
 
     def _api_post_ai_models(self):
@@ -322,20 +326,14 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             })
 
     def _api_post_ai_providers(self):
-        """API：返回 LiteLLM 支持的所有 provider slug 列表"""
-        try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            if content_length > 8 * 1024:
-                self._send_json(200, {"success": False, "message": "请求体过大（最大 8KB）"})
-                return
-            body = self.rfile.read(content_length).decode("utf-8") if content_length else "{}"
-        except Exception as e:
-            self._send_json(200, {"success": False, "message": f"请求解析失败: {e}", "providers": []})
-            return
+        """API：返回精简后的 provider 清单（6 项，按协议家族筛选）
 
+        与 list_providers() 不同：list_providers 返回 LiteLLM 全部 130+ provider，
+        list_curated_providers 仅返回供前端下拉用的 6 项核心 adapter。
+        """
         try:
             from trendradar.ai.model_catalog import ModelCatalog
-            providers = sorted(ModelCatalog.list_providers())
+            providers = ModelCatalog.list_curated_providers()
             self._send_json(200, {
                 "success": True,
                 "providers": providers,

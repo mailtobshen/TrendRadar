@@ -181,6 +181,7 @@ def get_default_config() -> Dict[str, Any]:
             "pull": {"enabled": False, "days": 7},
         },
         "ai": {
+            "provider": "openai",
             "model": "deepseek/deepseek-chat",
             "api_key": "",
             "api_base": "",
@@ -288,6 +289,19 @@ def load_structured_config(config_path: Path) -> Dict[str, Any]:
         for p in ALL_PLATFORM_IDS:
             if p["id"] not in existing_ids:
                 result["platforms"]["sources"].append({"id": p["id"], "name": p["name"], "enabled": True})
+
+    # 处理 ai 段：拆分老格式 "provider/model"（向后兼容）
+    if "ai" in result and isinstance(result["ai"], dict):
+        ai = result["ai"]
+        model = ai.get("model", "")
+        # 老格式: "provider/model" + 无 provider 字段 → 拆分
+        if isinstance(model, str) and "/" in model and not ai.get("provider"):
+            parts = model.split("/", 1)
+            ai["provider"] = parts[0]
+            ai["model"] = parts[1]
+        # 缺失 provider 时默认 openai
+        if not ai.get("provider"):
+            ai["provider"] = "openai"
 
     return result
 
