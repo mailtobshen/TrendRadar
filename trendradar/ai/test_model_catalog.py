@@ -10,8 +10,6 @@ from unittest.mock import patch, MagicMock
 
 import requests
 
-from litellm.exceptions import APIConnectionError
-
 
 class FakeResponse:
     def __init__(self, *, status_code=200, json_data=None, raise_json=False, text=""):

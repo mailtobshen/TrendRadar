@@ -9,7 +9,7 @@ AI 模型清单聚合模块
 合并去重后返回。Provider API 失败不应阻塞 LiteLLM 部分。
 """
 
-from typing import List, Optional, Set, Tuple
+from typing import List, Set, Tuple
 
 import litellm
 import requests
