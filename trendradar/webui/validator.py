@@ -14,8 +14,10 @@ except ImportError:
     yaml = None
 
 from trendradar.webui.config_schema import ALL_PLATFORM_IDS
+from trendradar.ai.model_catalog import CURATED_PROVIDERS
 
 VALID_PLATFORM_IDS = {p["id"] for p in ALL_PLATFORM_IDS}
+VALID_AI_PROVIDERS_SET = set(CURATED_PROVIDERS)
 VALID_REPORT_MODES = {"daily", "current", "incremental"}
 VALID_DISPLAY_MODES = {"keyword", "platform"}
 VALID_FILTER_METHODS = {"keyword", "ai"}
@@ -122,9 +124,12 @@ def validate_structured_config(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     # === ai ===
     ai = config.get("ai", {})
     if isinstance(ai, dict):
+        provider = ai.get("provider", "")
+        if provider and provider not in VALID_AI_PROVIDERS_SET:
+            errors.append({"section": "ai", "field": "provider", "message": f"provider 必须是已知 adapter 之一（{', '.join(VALID_AI_PROVIDERS_SET)}）"})
         model = ai.get("model", "")
-        if model and "/" not in model:
-            errors.append({"section": "ai", "field": "model", "message": "模型名称格式应为 provider/model_name"})
+        if model and "/" in model:
+            errors.append({"section": "ai", "field": "model", "message": "model 应为纯名，不含 '/' 字符（provider 已拆为独立字段）"})
         timeout = ai.get("timeout", 120)
         if not isinstance(timeout, int) or timeout < 0:
             errors.append({"section": "ai", "field": "timeout", "message": "超时时间必须是非负整数"})
