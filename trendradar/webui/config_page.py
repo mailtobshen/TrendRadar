@@ -178,6 +178,21 @@ def render_config_page() -> str:
             background: transparent; padding: 4px;
         }
         .tag-input input:focus { outline: none; }
+        .checkbox-group {
+            display: flex; flex-direction: column;
+            gap: 6px; padding: 8px;
+            border: 1px solid #e5e5e5; border-radius: 8px;
+            background: #fafafa; max-height: 200px; overflow-y: auto;
+        }
+        .checkbox-group-item {
+            display: flex; align-items: center; gap: 8px;
+            padding: 6px 8px; border-radius: 6px;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .checkbox-group-item:hover { background: #f0f0f5; }
+        .checkbox-group-item input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+        .checkbox-group-item label { font-size: 13px; color: #333; cursor: pointer; flex: 1; }
+        .checkbox-group-empty { color: #999; font-size: 13px; padding: 8px; text-align: center; }
         .list-table {
             width: 100%; border-collapse: collapse;
         }
@@ -252,6 +267,10 @@ def render_config_page() -> str:
         .toast.show { transform: translateX(0); }
         .toast.success { background: #22c55e; }
         .toast.error { background: #ef4444; }
+        .rss-test-status { font-size: 12px; margin-left: 6px; }
+        .rss-test-status.testing { color: #888; }
+        .rss-test-status.success { color: #22c55e; }
+        .rss-test-status.error { color: #ef4444; }
         .btn-icon-refresh {
             width: 28px; height: 28px; padding: 0;
             border-radius: 6px; font-size: 14px;
@@ -372,11 +391,41 @@ def render_config_page() -> str:
                 </div>
                 <table class="list-table" style="margin-top:12px;">
                     <thead>
-                        <tr><th>ID</th><th>名称</th><th>URL</th><th>启用</th><th>最大天数</th><th></th></tr>
+                        <tr><th>ID</th><th>名称</th><th>URL</th><th>启用</th><th>RSS网络测试</th><th></th></tr>
                     </thead>
                     <tbody id="rss-feeds-list"></tbody>
                 </table>
                 <button class="btn btn-secondary btn-sm" style="margin-top:12px;" onclick="addRssFeed()">+ 添加 RSS 源</button>
+            </div>
+            <div class="section">
+                <div class="section-title">调度系统</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">启用调度</label>
+                        <div class="toggle-switch" id="schedule-enabled-toggle" onclick="toggleSwitch('schedule.enabled')"></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">预设模板</label>
+                        <select id="schedule-preset" onchange="updateConfig('schedule.preset', this.value)">
+                            <option value="always_on">全天候</option>
+                            <option value="morning_evening">早晚模式（推荐）</option>
+                            <option value="office_hours">工作日三段式</option>
+                            <option value="night_owl">夜间模式</option>
+                            <option value="custom">完全自定义</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">自动爬取频率</label>
+                        <select id="schedule-crawl-interval" onchange="updateConfig('schedule.crawl_interval_hours', parseInt(this.value))">
+                            <option value="1">每1小时</option>
+                            <option value="2">每2小时</option>
+                            <option value="3">每3小时</option>
+                            <option value="4">每4小时</option>
+                            <option value="5">每5小时</option>
+                            <option value="6">每6小时</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -563,6 +612,11 @@ def render_config_page() -> str:
                         <input type="number" id="report-max-news" min="0"
                             onchange="updateConfig('report.max_news_per_keyword', parseInt(this.value)||0)">
                     </div>
+                    <div class="form-group">
+                        <label class="form-label">同源最大条数 <span class="optional">每个关键词每个来源最多显示条数，默认3</span></label>
+                        <input type="number" id="report-max-news-per-source" min="0"
+                            onchange="updateConfig('report.max_news_per_source_per_keyword', parseInt(this.value)||0)">
+                    </div>
                 </div>
                 <div class="checkbox-row">
                     <input type="checkbox" id="report-sort-position" onchange="updateConfig('report.sort_by_position_first', this.checked)">
@@ -613,26 +667,6 @@ def render_config_page() -> str:
                     </div>
                 </div>
             </div>
-
-            <div class="section">
-                <div class="section-title">调度系统</div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">启用调度</label>
-                        <div class="toggle-switch" id="schedule-enabled-toggle" onclick="toggleSwitch('schedule.enabled')"></div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">预设模板</label>
-                        <select id="schedule-preset" onchange="updateConfig('schedule.preset', this.value)">
-                            <option value="always_on">全天候</option>
-                            <option value="morning_evening">早晚模式（推荐）</option>
-                            <option value="office_hours">工作日三段式</option>
-                            <option value="night_owl">夜间模式</option>
-                            <option value="custom">完全自定义</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
         </div>
 
         <!-- 显示与推送 -->
@@ -649,11 +683,11 @@ def render_config_page() -> str:
                 <div class="form-row">
                     <div class="form-group half">
                         <label class="form-label">展示平台</label>
-                        <div id="standalone-platforms" class="tag-input"></div>
+                        <div id="standalone-platforms" class="checkbox-group"></div>
                     </div>
                     <div class="form-group half">
                         <label class="form-label">展示 RSS 源</label>
-                        <div id="standalone-rss" class="tag-input"></div>
+                        <div id="standalone-rss" class="checkbox-group"></div>
                     </div>
                 </div>
                 <div class="form-row">
@@ -734,10 +768,17 @@ def render_config_page() -> str:
                         <label class="form-label">启用代理</label>
                         <div class="toggle-switch" id="advanced-crawler-use_proxy-toggle" onclick="toggleSwitch('advanced.crawler.use_proxy')"></div>
                     </div>
+                </div>
+                <div class="section-subtitle">RSS 代理</div>
+                <div class="form-row">
                     <div class="form-group">
-                        <label class="form-label">代理地址 <span class="optional">可选</span></label>
-                        <input type="text" id="crawler-proxy-url"
-                            onchange="updateConfig('advanced.crawler.default_proxy', this.value)">
+                        <label class="form-label">启用 RSS 代理</label>
+                        <div class="toggle-switch" id="advanced-rss-use_proxy-toggle" onclick="toggleSwitch('advanced.rss.use_proxy')"></div>
+                    </div>
+                    <div class="form-group half">
+                        <label class="form-label">RSS代理服务URL</label>
+                        <input type="text" id="rss-proxy-url" placeholder="http://proxy:port"
+                            onchange="updateConfig('advanced.rss.proxy_url', this.value)">
                     </div>
                 </div>
             </div>
@@ -828,6 +869,10 @@ def render_config_page() -> str:
             <button class="btn btn-primary" id="btn-save" onclick="saveConfig()">
                 <span>保存配置</span>
             </button>
+            <button class="btn btn-secondary" id="btn-regenerate-report" onclick="regenerateReport()">
+                <span>重新生成报告</span>
+            </button>
+            <span id="regenerate-status" style="color:#666;font-size:13px;"></span>
             <button class="btn btn-secondary" id="btn-trigger" onclick="triggerCrawl()">
                 <span>立即爬取</span>
             </button>
@@ -976,6 +1021,7 @@ def render_config_page() -> str:
             setSelect('report-display-mode', report.display_mode);
             setInput('report-rank-threshold', report.rank_threshold);
             setInput('report-max-news', report.max_news_per_keyword);
+            setInput('report-max-news-per-source', report.max_news_per_source_per_keyword);
             setCheckbox('report-sort-position', report.sort_by_position_first);
 
             // 筛选
@@ -994,13 +1040,16 @@ def render_config_page() -> str:
             const schedule = getValue('schedule') || {};
             setToggle('schedule-enabled-toggle', schedule.enabled);
             setSelect('schedule-preset', schedule.preset);
+            setSelect('schedule-crawl-interval', schedule.crawl_interval_hours || 3);
 
             // 显示
             const display = getValue('display') || {};
             renderDisplayRegions(display.regions || {});
             const standalone = display.standalone || {};
-            renderTagInput('standalone-platforms', standalone.platforms || [], (v) => updateConfig('display.standalone.platforms', v));
-            renderTagInput('standalone-rss', standalone.rss_feeds || [], (v) => updateConfig('display.standalone.rss_feeds', v));
+            const allPlatforms = (getValue('platforms.sources') || []).map(s => ({id: s.id, name: s.name}));
+            const allRssFeeds = (getValue('rss.feeds') || []).map(f => ({id: f.id, name: f.name || f.id}));
+            renderCheckboxGroup('standalone-platforms', allPlatforms, standalone.platforms || [], (v) => updateConfig('display.standalone.platforms', v));
+            renderCheckboxGroup('standalone-rss', allRssFeeds, standalone.rss_feeds || [], (v) => updateConfig('display.standalone.rss_feeds', v));
             setInput('standalone-max-items', standalone.max_items);
 
             // 通知
@@ -1022,7 +1071,11 @@ def render_config_page() -> str:
             const crawler = (getValue('advanced') || {}).crawler || {};
             setInput('crawler-interval', crawler.request_interval);
             setToggle('advanced-crawler-use_proxy-toggle', crawler.use_proxy);
-            setInput('crawler-proxy-url', crawler.default_proxy);
+
+            // RSS 代理
+            const rssProxy = (getValue('advanced') || {}).rss || {};
+            setToggle('advanced-rss-use_proxy-toggle', rssProxy.use_proxy);
+            setInput('rss-proxy-url', rssProxy.proxy_url || '');
 
             // 基础
             const app = getValue('app') || {};
@@ -1269,7 +1322,10 @@ def render_config_page() -> str:
                     <td><input type="text" value="${esc(f.name||'')}" onchange="updateRssFeed(${i}, 'name', this.value)" placeholder="名称"></td>
                     <td><input type="url" value="${esc(f.url||'')}" onchange="updateRssFeed(${i}, 'url', this.value)" placeholder="URL"></td>
                     <td><input type="checkbox" ${f.enabled!==false?'checked':''} onchange="updateRssFeed(${i}, 'enabled', this.checked)"></td>
-                    <td><input type="number" value="${f.max_age_days!==undefined?f.max_age_days:''}" min="0" onchange="updateRssFeed(${i}, 'max_age_days', this.value===''?null:parseInt(this.value))" placeholder="默认"></td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" id="rss-test-btn-${i}" onclick="testRssConnectivity(${i})">联通测试</button>
+                        <span id="rss-test-status-${i}" class="rss-test-status"></span>
+                    </td>
                     <td><button class="btn btn-danger btn-icon" onclick="removeRssFeed(${i})">✕</button></td>
                 </tr>
             `).join('');
@@ -1294,36 +1350,36 @@ def render_config_page() -> str:
             renderRssFeeds(feeds);
         }
 
-
-        async function testAiConnection() {
-            const model = joinModel();
-            const apiKey = document.getElementById('ai-api-key').value.trim();
-            const apiBase = document.getElementById('ai-api-base').value.trim();
-
-            if (!model) {
-                showToast('请先选择 Provider 和模型', 'error');
+        async function testRssConnectivity(index) {
+            const feeds = getValue('rss.feeds') || [];
+            const feed = feeds[index];
+            if (!feed || !feed.url) {
+                showToast('RSS URL 为空', 'error');
                 return;
             }
-
-            const btn = document.getElementById('ai-test-btn');
-            const statusEl = document.getElementById('ai-test-status');
+            const btn = document.getElementById('rss-test-btn-' + index);
+            const statusEl = document.getElementById('rss-test-status-' + index);
             btn.disabled = true;
             statusEl.textContent = '测试中...';
             statusEl.className = 'rss-test-status testing';
-
+            const advanced = (getValue('advanced') || {}).rss || {};
             try {
-                const res = await fetch('/api/ai/test', {
+                const res = await fetch('/api/rss/test', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({model: model, api_key: apiKey, api_base: apiBase})
+                    body: JSON.stringify({
+                        url: feed.url,
+                        use_proxy: advanced.use_proxy,
+                        proxy_url: advanced.proxy_url || '',
+                        timeout: advanced.timeout || 15,
+                    })
                 });
                 const data = await res.json();
                 if (data.success) {
-                    const ms = data.latency_ms != null ? `（${data.latency_ms}ms）` : '';
-                    statusEl.textContent = '✅ 连接成功 ' + ms;
+                    statusEl.textContent = '✅ ' + data.message;
                     statusEl.className = 'rss-test-status success';
                 } else {
-                    statusEl.textContent = '❌ ' + (data.message || '测试失败');
+                    statusEl.textContent = '❌ ' + data.message;
                     statusEl.className = 'rss-test-status error';
                 }
             } catch (e) {
@@ -1505,39 +1561,37 @@ def render_config_page() -> str:
             updateConfig('notification.channels', channels);
         }
 
-        // Tag Input
-        function renderTagInput(id, values, onChange) {
+        // Checkbox Group (for standalone display source selection)
+        function renderCheckboxGroup(id, availableOptions, selectedValues, onChange) {
             const container = document.getElementById(id);
             if (!container) return;
-            const render = () => {
-                const tags = (values || []).map((v, i) =>
-                    `<span class="tag">${esc(v)}<span class="tag-remove" onclick="removeTag('${id}', ${i})">✕</span></span>`
-                ).join('');
-                container.innerHTML = tags + `<input type="text" placeholder="添加后按回车" onkeydown="tagInputKeydown(event, '${id}')">`;
-            };
-            container._values = values || [];
+            const selectedSet = new Set(selectedValues || []);
+            if (!availableOptions || availableOptions.length === 0) {
+                container.innerHTML = '<div class="checkbox-group-empty">无可用选项</div>';
+                return;
+            }
+            container.innerHTML = availableOptions.map(opt => `
+                <div class="checkbox-group-item">
+                    <input type="checkbox" id="${id}-${opt.id}"
+                        ${selectedSet.has(opt.id) ? 'checked' : ''}
+                        onchange="handleCheckboxGroupChange('${id}', '${opt.id}', this.checked)">
+                    <label for="${id}-${opt.id}">${esc(opt.name || opt.id)}</label>
+                </div>
+            `).join('');
             container._onChange = onChange;
-            render();
         }
-        function tagInputKeydown(e, id) {
-            if (e.key !== 'Enter') return;
-            e.preventDefault();
-            const val = e.target.value.trim();
-            if (!val) return;
+        function handleCheckboxGroupChange(id, optionId, checked) {
             const container = document.getElementById(id);
-            const values = [...container._values, val];
-            container._values = values;
-            container._onChange(values);
-            e.target.value = '';
-            renderTagInput(id, values, container._onChange);
-        }
-        function removeTag(id, index) {
-            const container = document.getElementById(id);
-            const values = [...container._values];
-            values.splice(index, 1);
-            container._values = values;
-            container._onChange(values);
-            renderTagInput(id, values, container._onChange);
+            if (!container) return;
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            const selectedValues = [];
+            checkboxes.forEach(cb => {
+                if (cb.checked) {
+                    const cbId = cb.id.replace(id + '-', '');
+                    selectedValues.push(cbId);
+                }
+            });
+            if (container._onChange) container._onChange(selectedValues);
         }
 
         // 全局过滤词
@@ -1734,6 +1788,45 @@ def render_config_page() -> str:
             } finally {
                 isTriggering = false;
                 btn.disabled = false; btn.innerHTML = '<span>立即爬取</span>';
+            }
+        }
+
+        async function regenerateReport() {
+            const statusEl = document.getElementById('regenerate-status');
+            const btn = document.getElementById('btn-regenerate-report');
+            if (btn) btn.disabled = true;
+            statusEl.textContent = '保存配置中...';
+
+            try {
+                const saveRes = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({config, frequency_words: frequencyWords})
+                });
+                const saveData = await saveRes.json();
+                if (!saveData.success) {
+                    statusEl.textContent = '❌ 配置保存失败';
+                    showToast('配置保存失败: ' + (saveData.message || '未知错误'), 'error');
+                    if (btn) btn.disabled = false;
+                    return;
+                }
+
+                statusEl.textContent = '生成报告中...';
+                const res = await fetch('/api/regenerate-report', {method: 'POST'});
+                const data = await res.json();
+                if (data.success) {
+                    statusEl.textContent = '✅ 已生成';
+                    showToast('报告已重新生成', 'success');
+                    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+                } else {
+                    statusEl.textContent = '❌ ' + (data.message || '失败');
+                    showToast(data.message || '生成失败', 'error');
+                }
+            } catch (e) {
+                statusEl.textContent = '❌ 网络错误';
+                showToast('网络错误: ' + e.message, 'error');
+            } finally {
+                if (btn) btn.disabled = false;
             }
         }
 
