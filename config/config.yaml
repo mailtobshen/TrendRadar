@@ -69,6 +69,39 @@ rss:
     name: 福克斯新闻
     url: http://feeds.foxnews.com/foxnews/latest
     enabled: true
+  - id: Github
+    name: Github
+    url: https://github.blog/feed/
+  - id: Huggingface
+    name: 抱抱脸
+    url: https://huggingface.co/blog/feed.xml
+  - id: RFI
+    name: 法国国际广播
+    url: https://feedx.net/rss/rfi.xml
+    enabled: true
+  - id: AI-Era
+    name: 新智元
+    url: https://plink.anyfeeder.com/weixin/AI_era
+  - id: CNA
+    name: 中央社
+    url: https://rsshub.rssforever.com/cna
+  - id: DeutscheWelle
+    name: 德国之声
+    url: https://rsshub.rssforever.com/dw/news
+  - id: Reuters
+    name: 路透社
+    url: https://ir.thomsonreuters.com/rss/news-releases.xml
+    enabled: true
+  - id: economist
+    name: 经济学人
+    url: https://plink.anyfeeder.com/weixin/theeconomist
+  - id: ltn
+    name: 自由时报
+    url: https://news.ltn.com.tw/rss/all.xml
+    enabled: true
+  - id: zaobao
+    name: 联合早报
+    url: https://plink.anyfeeder.com/zaobao/realtime/china
 report:
   mode: current
   display_mode: keyword
@@ -97,7 +130,7 @@ display:
     hotlist: true
     new_items: true
     rss: true
-    standalone: false
+    standalone: true
     ai_analysis: true
   standalone:
     platforms:
