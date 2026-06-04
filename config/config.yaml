@@ -187,9 +187,10 @@ storage:
     enabled: false
     days: 7
 ai:
-  model: ollama/qwen3.5-opus:9b
-  api_key: ollama-local
-  api_base: http://172.25.128.1:11434
+  provider: openai
+  model: MiniMax-M3
+  api_key: YOUR_API_KEY_HERE
+  api_base: https://api.minimaxi.com/v1
   timeout: 120
   temperature: 1
   max_tokens: 5000
