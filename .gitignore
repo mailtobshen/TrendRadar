@@ -11,5 +11,11 @@ output/
 # 配置备份
 config/*.backup.*
 
+# TrendRadar 运行时数据库（被长跑进程重建）
+*.rvf
+*.rvf.lock
+ruvector.db
+docker/ruvector.db
+
 # 环境变量
 docker/.env
