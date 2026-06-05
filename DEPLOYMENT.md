@@ -112,9 +112,9 @@ WEBSERVER_PORT=8080
 
 # AI 配置
 AI_ANALYSIS_ENABLED=true
-AI_API_KEY=sk-cp-***（MiniMax API Key）
-AI_MODEL=minimax/MiniMax-M2.7-highspeed
-AI_API_BASE=https://api.minimaxi.com/v1
+AI_API_KEY=<YOUR_API_KEY>
+AI_MODEL=<provider/model_name>   # 例: openai/gpt-4o, deepseek/deepseek-chat
+AI_API_BASE=<https://your-provider-base-url>   # 多数情况留空即可
 
 # 运行模式
 CRON_SCHEDULE=*/30 * * * *
