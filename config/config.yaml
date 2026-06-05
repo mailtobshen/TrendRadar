@@ -119,6 +119,7 @@ report:
   sort_by_position_first: false
   rank_threshold: 5
   max_news_per_keyword: 0
+  max_news_per_source_per_keyword: 3
 filter:
   method: ai
   priority_sort_enabled: true
@@ -146,8 +147,26 @@ display:
   standalone:
     platforms:
     - wallstreetcn-hot
-    rss_feeds: []
-    max_items: 20
+    rss_feeds:
+    - hacker-news
+    - yahoo-finance
+    - scmp
+    - asahi
+    - BBC
+    - nytimes
+    - washingtonpost
+    - foxnews
+    - Github
+    - Huggingface
+    - RFI
+    - AI-Era
+    - CNA
+    - DeutscheWelle
+    - Reuters
+    - economist
+    - ltn
+    - zaobao
+    max_items: 5
 notification:
   enabled: true
   channels:
@@ -229,25 +248,27 @@ tags:
   mode: manual
   items:
   - name: 科技巨头
-    description: 华为、腾讯、字节跳动、京东、鸿蒙、海思、昇腾、抖音、微信等公司战略、组织、产品、资本与监管；苹果、微软、谷歌、Anthropic、OpenAI 财报、发布会、产品路线、合作竞争
+    description: 与华为、腾讯、阿里巴巴、字节跳动、京东、鸿蒙、抖音、微信；苹果、微软、谷歌、Anthropic、OpenAI、google、deepmind等品牌或公司相关
   - name: 大模型 AI 产品
-    description: OpenAI、Claude、ChatGPT、Sora、DALL-E、Qwen、MiniMax、GLM 、DeepSeek、Kimi等模型能力、开源策略、生态竞争
+    description: 与OpenAI、anthropic、codex、Claude code、ChatGPT、Qwen、MiniMax、GLM 、DeepSeek、Kimi、MiMo、seedance等模型能力、智能体、openclaw、hermes、harness、CodeBuddy、千问、豆包、元宝、混元、模型推理成本、模型训练等品牌或公司或技术相关
   - name: 芯片半导体及云算力基础设施
-    description: 芯片、半导体、光刻机、先进封装、国产替代、关键材料设备、供应安全；英伟达、AMD、华为算力、CUDA、Azure、Google Cloud 的算力供给、推理成本、训练效率、供应链
+    description: 与芯片、半导体、光刻机、先进封装、国产替代、关键材料设备、供应安全；英伟达、AMD、智能算力、韬定律、海思、昇腾、ARM、CUDA、Azure、智算中心等品牌或技术相关
   - name: 智能汽车自动驾驶
-    description: 比亚迪、特斯拉、FSD、无人驾驶、智驾、刀片电池、云辇、销量、定价、出海
+    description: 与比亚迪、鸿蒙智驾、问界、特斯拉、FSD、无人驾驶、智驾、刀片电池、云辇、吉利汽车、奇瑞汽车、宝马、奔驰、奥迪、丰田、理想汽车、小鹏汽车、蔚来汽车、宁德时代等品牌或公司或技术相关
   - name: 机器人具身智能
-    description: 宇树、智元、众擎、大疆的机器人、机械狗、四足、人形、具身智能产品、量产、场景落地
+    description: 与宇树科技、智元机器人、众擎、大疆、无人机、机械狗、四足机器人、人形机器人、具身智能、世界模型等品牌或公司或技术相关
   - name: 地缘政治国际关系
-    description: 中美欧日印俄伊朗乌克兰以色列战争、关税、制裁、外交、冲突、产业脱钩、供应链博弈；
+    description: 与中美欧日印俄伊朗乌克兰以色列战争、关税、制裁、外交、冲突、产业脱钩、供应链博弈、宗教、意识形态、选举、军事动向、贸易壁垒、联合国、稀土等战略资源，大国博弈，地缘政治等主题相关
   - name: 金融市场宏观政策
-    description: 美联储利率、汇率、通胀、就业、股债商品、全球流动性
+    description: 与美联储、货币、美元、美债、黄金、贵金属、汇率、通胀、就业、股债商品、全球流动性、人民币国际化、货币互换、比特币、稳定币、石油贸易、国际期货、英镑、欧元、人民币、日元、支付体系等主题相关
   - name: 能源电力系统
-    description: 光伏、太阳能、水电（雅鲁藏布江）、核能、新型电力系统建设
+    description: 与清洁能源、绿电、低碳、光伏、太阳能、水电、风电、核能、新型电力系统建设等主题相关
   - name: 航天深空探索
-    description: SpaceX、登月、火星、飞船、卫星、空间站、商业航天技术产业化
+    description: 与中国航天、SpaceX、蓝色起源、火箭发射、北斗、GPS、登月、火星、飞船、卫星、空间站、商业航天技术产业化等主题相关
   - name: 前沿科学技术
-    description: 量子、脑机接口、基因工程科研突破与产业应用
+    description: 与量子技术、脑机接口、新材料、医学突破、基因工程科研突破与产业应用等主题相关
+  - name: 军事科技与装备
+    description: 与军事科技、军工装备现代化、武器研发、军事通信技术、单兵装备、导弹、核武器、太空武器、战斗机、战斗机器人、航空母舰、六代机、陆军、海军、空军、空天军等主题相关
 advanced:
   debug: false
   version_check_url: https://raw.githubusercontent.com/sansan0/TrendRadar/refs/heads/master/version
@@ -255,13 +276,13 @@ advanced:
   configs_version_check_url: https://raw.githubusercontent.com/sansan0/TrendRadar/refs/heads/master/version_configs
   crawler:
     request_interval: 2000
-    use_proxy: false
+    use_proxy: true
     default_proxy: http://127.0.0.1:10808
   rss:
     request_interval: 1000
     timeout: 15
-    use_proxy: false
-    proxy_url: ''
+    use_proxy: true
+    proxy_url: http://172.25.128.1:1080
   weight:
     rank: 0.6
     frequency: 0.3

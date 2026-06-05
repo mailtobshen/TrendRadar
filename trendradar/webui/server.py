@@ -168,6 +168,13 @@ class WebUIHandler(SimpleHTTPRequestHandler):
 
             # 写入文件（带锁）
             if config is not None:
+                # 强制把 ai.api_key 还原为占位符，真实 key 必须走 AI_API_KEY 环境变量
+                # （避免 WebUI 表单误把真实 key 写进 config.yaml 后被 git 提交）
+                ai_section = config.get("ai") if isinstance(config, dict) else None
+                if isinstance(ai_section, dict):
+                    submitted_key = (ai_section.get("api_key") or "").strip()
+                    if submitted_key and submitted_key != "YOUR_API_KEY_HERE":
+                        ai_section["api_key"] = "YOUR_API_KEY_HERE"
                 save_structured_config(CONFIG_YAML_PATH, config)
             if frequency_words is not None:
                 save_structured_frequency_words(FREQUENCY_WORDS_PATH, frequency_words)
@@ -535,6 +542,18 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         if not model:
             self._send_json(200, {"success": False, "message": "model 不能为空"})
             return
+
+        # api_key 占位符回退：与运行时（trendradar/core/loader.py）保持一致
+        # config.yaml 中 'YOUR_API_KEY_HERE' 是不提交真实 key 的占位符（见 docs/ai-env-vars.md）
+        # 若前端把占位符原样送过来（或字段为空），回退 AI_API_KEY 环境变量
+        if not api_key or api_key == "YOUR_API_KEY_HERE":
+            api_key = os.environ.get("AI_API_KEY", "").strip()
+            if not api_key:
+                self._send_json(200, {
+                    "success": False,
+                    "message": "未配置 AI API Key：请在表单中填写真实 key，或设置 AI_API_KEY 环境变量",
+                })
+                return
 
         # 防御性：如果 model 仍含 '/'，自动拆分（前端不会产生，仅防老客户端）
         if "/" in model:

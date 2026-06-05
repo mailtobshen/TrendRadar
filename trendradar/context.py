@@ -337,7 +337,7 @@ class AppContext:
             mode=mode,
             update_info=update_info,
             rank_threshold=self.rank_threshold,
-            output_dir="output",
+            output_dir=self.config.get("STORAGE", {}).get("LOCAL", {}).get("DATA_DIR", "output"),
             date_folder=self.format_date(),
             time_filename=self.format_time(),
             render_html_func=lambda *args, **kwargs: self.render_html(*args, rss_items=rss_items, rss_new_items=rss_new_items, ai_analysis=ai_analysis, standalone_data=standalone_data, **kwargs),

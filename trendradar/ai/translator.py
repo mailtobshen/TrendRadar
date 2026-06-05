@@ -52,6 +52,8 @@ class AITranslator:
         self.enabled = translation_config.get("ENABLED", False)
         self.target_language = translation_config.get("LANGUAGE", "English")
         self.scope = translation_config.get("SCOPE", {"HOTLIST": True, "RSS": True, "STANDALONE": True})
+        # 每批翻译条数上限：避免单次 prompt 过大导致 AI 输出截断
+        self.batch_size = max(1, int(translation_config.get("BATCH_SIZE", 30)))
 
         # 创建 AI 客户端（基于 LiteLLM）
         self.client = AIClient(ai_config)
@@ -109,7 +111,7 @@ class AITranslator:
 
     def translate_batch(self, texts: List[str]) -> BatchTranslationResult:
         """
-        批量翻译文本（单次 API 调用）
+        批量翻译文本（按 self.batch_size 自动分批，避免单次 prompt 过大被截断）
 
         Args:
             texts: 要翻译的文本列表
@@ -162,49 +164,80 @@ class AITranslator:
         if not non_empty_texts:
             return batch_result
 
+        # 按 batch_size 分批调用（避免 AI 输出截断）
+        import copy
+        batch_size = max(1, self.batch_size)
+        total_non_empty = len(non_empty_texts)
+        if total_non_empty > batch_size:
+            print(f"[翻译] 共 {total_non_empty} 条，分 {((total_non_empty + batch_size - 1) // batch_size)} 批发送（每批 {batch_size} 条）")
+
+        for batch_start in range(0, total_non_empty, batch_size):
+            batch_end = min(batch_start + batch_size, total_non_empty)
+            batch_indices = non_empty_indices[batch_start:batch_end]
+            batch_texts = non_empty_texts[batch_start:batch_end]
+            self._translate_one_chunk(
+                batch_texts, batch_indices, batch_result,
+                batch_no=batch_start // batch_size + 1,
+                total_batches=(total_non_empty + batch_size - 1) // batch_size,
+            )
+
+        return batch_result
+
+    def _translate_one_chunk(
+        self,
+        chunk_texts: List[str],
+        chunk_indices: List[int],
+        batch_result: BatchTranslationResult,
+        batch_no: int = 1,
+        total_batches: int = 1,
+    ) -> None:
+        """单批翻译的实际调用（内部使用，会填充 batch_result）"""
         try:
             # 构建批量翻译内容（使用编号格式）
-            batch_content = self._format_batch_content(non_empty_texts)
+            batch_content = self._format_batch_content(chunk_texts)
 
             # 构建提示词
             user_prompt = self.user_prompt_template
             user_prompt = user_prompt.replace("{target_language}", self.target_language)
             user_prompt = user_prompt.replace("{content}", batch_content)
 
-            # 记录 debug 信息（包含完整的 system + user prompt）
-            if self.system_prompt:
-                batch_result.prompt = f"[system]\n{self.system_prompt}\n\n[user]\n{user_prompt}"
-            else:
-                batch_result.prompt = user_prompt
+            # 记录 debug 信息（仅首条）
+            if batch_no == 1:
+                if self.system_prompt:
+                    batch_result.prompt = f"[system]\n{self.system_prompt}\n\n[user]\n{user_prompt}"
+                else:
+                    batch_result.prompt = user_prompt
 
             # 调用 AI API
             response = self._call_ai(user_prompt)
 
-            # 记录 AI 原始响应
-            batch_result.raw_response = response
+            # 记录 AI 原始响应（仅首条；多条响应太长不记录）
+            if batch_no == 1:
+                batch_result.raw_response = response
 
             # 解析批量翻译结果
-            translated_texts, raw_parsed_count = self._parse_batch_response(response, len(non_empty_texts))
-            batch_result.parsed_count = raw_parsed_count
+            translated_texts, raw_parsed_count = self._parse_batch_response(response, len(chunk_texts))
+            batch_result.parsed_count += raw_parsed_count
+
+            # 诊断：parsed_count < 期望时打印 AI 响应尾部
+            if raw_parsed_count < len(chunk_texts):
+                print(f"[翻译][DEBUG] 批 {batch_no}/{total_batches} AI 解析 {raw_parsed_count}/{len(chunk_texts)} 条；响应尾部 500 字符: ...{response[-500:]!r}")
 
             # 填充结果（跳过空翻译，避免用空字符串覆盖原始标题）
-            for idx, translated in zip(non_empty_indices, translated_texts):
+            for idx, translated in zip(chunk_indices, translated_texts):
                 if translated and translated.strip():
                     batch_result.results[idx].translated_text = translated
                     batch_result.results[idx].success = True
                     batch_result.success_count += 1
                 else:
-                    batch_result.results[idx].translated_text = batch_result.results[idx].original_text
-                    batch_result.results[idx].success = True
-                    batch_result.success_count += 1
+                    batch_result.results[idx].error = "AI 未返回该条翻译"
+                    batch_result.fail_count += 1
 
         except Exception as e:
             error_msg = f"批量翻译失败: {type(e).__name__}: {str(e)[:100]}"
-            for idx in non_empty_indices:
+            for idx in chunk_indices:
                 batch_result.results[idx].error = error_msg
-            batch_result.fail_count = len(non_empty_indices)
-
-        return batch_result
+            batch_result.fail_count += len(chunk_indices)
 
     def _format_batch_content(self, texts: List[str]) -> str:
         """格式化批量翻译内容"""

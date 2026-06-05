@@ -43,13 +43,27 @@ class AIClient:
         # Task 3 加载时迁移完成后，此分支会变成 no-op。
         if "/" in self.model and self.provider == "openai" and "PROVIDER" not in config:
             self.provider, self.model = self.model.split("/", 1)
-        self.api_key = config.get("API_KEY") or os.environ.get("AI_API_KEY", "")
+        self.api_key = self._resolve_api_key(config.get("API_KEY"))
         self.api_base = config.get("API_BASE", "")
         self.temperature = config.get("TEMPERATURE", 1.0)
         self.max_tokens = config.get("MAX_TOKENS", 5000)
         self.timeout = config.get("TIMEOUT", 120)
         self.num_retries = config.get("NUM_RETRIES", 2)
         self.fallback_models = config.get("FALLBACK_MODELS", [])
+
+    @staticmethod
+    def _resolve_api_key(config_value):
+        """
+        解析 API key：
+        - 若 config_value 是占位符 YOUR_API_KEY_HERE（不提交真实 key），
+          回退到 AI_API_KEY 环境变量。
+        - 若 config_value 是真实 key（前端表单提交时），直接用。
+        - 否则回退到 env var。
+        """
+        env_key = os.environ.get("AI_API_KEY", "").strip()
+        if config_value and config_value.strip() != "YOUR_API_KEY_HERE":
+            return config_value
+        return env_key
 
     def chat(
         self,

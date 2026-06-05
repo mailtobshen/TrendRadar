@@ -50,6 +50,18 @@ def _get_env_str(key: str, default: str = "") -> str:
     return os.environ.get(key, "").strip() or default
 
 
+# config.yaml 中 API key 的占位符（不入版本控制的真实 key）。
+# 出现时视为未配置，让 env var (AI_API_KEY) 生效。
+_API_KEY_PLACEHOLDER = "YOUR_API_KEY_HERE"
+
+
+def _placeholder_or_value(value: str) -> str:
+    """若 value 是占位符则返回空串，否则原样返回。"""
+    if not value:
+        return ""
+    return "" if value.strip() == _API_KEY_PLACEHOLDER else value
+
+
 def _load_app_config(config_data: Dict) -> Dict:
     """加载应用配置"""
     app_config = config_data.get("app", {})
@@ -277,7 +289,7 @@ def _load_ai_config(config_data: Dict) -> Dict:
     return {
         # LiteLLM 核心配置
         "MODEL": _get_env_str("AI_MODEL") or ai_config.get("model", ""),
-        "API_KEY": _get_env_str("AI_API_KEY") or ai_config.get("api_key", ""),
+        "API_KEY": _get_env_str("AI_API_KEY") or _placeholder_or_value(ai_config.get("api_key", "")),
         "API_BASE": _get_env_str("AI_API_BASE") or ai_config.get("api_base", ""),
 
         # 生成参数
