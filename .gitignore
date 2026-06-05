@@ -19,3 +19,6 @@ docker/ruvector.db
 
 # 环境变量
 docker/.env
+
+# Claude Code harness（用户本地配置，不入版本控制）
+.claude/
