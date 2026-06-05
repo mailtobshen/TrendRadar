@@ -880,6 +880,9 @@ class NewsAnalyzer:
         # HTML生成（如果启用）— 使用翻译后的数据
         html_file = None
         if self.ctx.config["STORAGE"]["FORMATS"]["HTML"]:
+            display_regions = self.ctx.config.get("DISPLAY", {}).get("REGIONS", {})
+            html_standalone = standalone_data if display_regions.get("STANDALONE", False) else None
+            html_ai = ai_result if display_regions.get("AI_ANALYSIS", True) else None
             html_file = self.ctx.generate_html(
                 stats,
                 total_titles,
@@ -890,8 +893,8 @@ class NewsAnalyzer:
                 update_info=self.update_info if self.ctx.config["SHOW_VERSION_UPDATE"] else None,
                 rss_items=rss_items,
                 rss_new_items=rss_new_items,
-                ai_analysis=ai_result,
-                standalone_data=standalone_data,
+                ai_analysis=html_ai,
+                standalone_data=html_standalone,
                 frequency_file=self.frequency_file,
             )
 
