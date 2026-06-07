@@ -226,9 +226,16 @@ class AITranslator:
             # 填充结果（跳过空翻译，避免用空字符串覆盖原始标题）
             for idx, translated in zip(chunk_indices, translated_texts):
                 if translated and translated.strip():
-                    batch_result.results[idx].translated_text = translated
-                    batch_result.results[idx].success = True
-                    batch_result.success_count += 1
+                    original = batch_result.results[idx].original_text or ""
+                    # 关键：若翻译 == 原文（AI 把英文标题原样返回 / 把中文标题原样返回），
+                    # 视为失败，避免 dispatcher 误判为"已翻译"但实际显示未翻译的内容
+                    if translated.strip() == original.strip():
+                        batch_result.results[idx].error = "AI 返回原文未翻译"
+                        batch_result.fail_count += 1
+                    else:
+                        batch_result.results[idx].translated_text = translated
+                        batch_result.results[idx].success = True
+                        batch_result.success_count += 1
                 else:
                     batch_result.results[idx].error = "AI 未返回该条翻译"
                     batch_result.fail_count += 1

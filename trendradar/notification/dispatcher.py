@@ -69,6 +69,23 @@ class NotificationDispatcher:
         self.max_accounts = config.get("MAX_ACCOUNTS_PER_CHANNEL", 3)
         self.translator = translator
 
+    @staticmethod
+    def _is_chinese_text(text: str, threshold: float = 0.3) -> bool:
+        """
+        判断文本是否已经是目标语言（中文）— 若是则无需翻译，避免无意义的"AI 返回原文"假成功。
+
+        Args:
+            text: 待检测文本
+            threshold: CJK 字符占比阈值（默认 0.3 = 30%）
+
+        Returns:
+            bool: True 表示视为中文，无需送 AI
+        """
+        if not text or not text.strip():
+            return False
+        cjk_count = sum(1 for ch in text if '一' <= ch <= '鿿')
+        return cjk_count / max(len(text), 1) >= threshold
+
     def translate_content(
         self,
         report_data: Dict,
@@ -108,6 +125,10 @@ class NotificationDispatcher:
         standalone_data = copy.deepcopy(standalone_data) if standalone_data else None
 
         # 收集所有需要翻译的标题
+        # 已经是中文的标题不送 AI（避免被 AI 当成"无需翻译"返回原文造成假成功）
+        target_lang = self.translator.target_language
+        target_is_chinese = "中" in target_lang or "Chinese" in target_lang.lower() or "zh" in target_lang.lower()
+        skipped_chinese = 0
         titles_to_translate = []
         title_locations = []  # 记录标题位置，用于回填
 
@@ -115,20 +136,32 @@ class NotificationDispatcher:
         if scope.get("HOTLIST", True) and display_regions.get("HOTLIST", True):
             for stat_idx, stat in enumerate(report_data.get("stats", [])):
                 for title_idx, title_data in enumerate(stat.get("titles", [])):
-                    titles_to_translate.append(title_data.get("title", ""))
+                    t = title_data.get("title", "")
+                    if target_is_chinese and self._is_chinese_text(t):
+                        skipped_chinese += 1
+                        continue
+                    titles_to_translate.append(t)
                     title_locations.append(("stats", stat_idx, title_idx))
 
             # 2. 新增热点标题
             for source_idx, source in enumerate(report_data.get("new_titles", [])):
                 for title_idx, title_data in enumerate(source.get("titles", [])):
-                    titles_to_translate.append(title_data.get("title", ""))
+                    t = title_data.get("title", "")
+                    if target_is_chinese and self._is_chinese_text(t):
+                        skipped_chinese += 1
+                        continue
+                    titles_to_translate.append(t)
                     title_locations.append(("new_titles", source_idx, title_idx))
 
         # 3. RSS 统计标题（结构与 stats 一致：[{word, count, titles: [{title, ...}]}]）
         if not skip_rss and rss_items and scope.get("RSS", True) and display_regions.get("RSS", True):
             for stat_idx, stat in enumerate(rss_items):
                 for title_idx, title_data in enumerate(stat.get("titles", [])):
-                    titles_to_translate.append(title_data.get("title", ""))
+                    t = title_data.get("title", "")
+                    if target_is_chinese and self._is_chinese_text(t):
+                        skipped_chinese += 1
+                        continue
+                    titles_to_translate.append(t)
                     title_locations.append(("rss_items", stat_idx, title_idx))
 
         # 4. RSS 新增标题（结构与 stats 一致）
@@ -136,22 +169,37 @@ class NotificationDispatcher:
         if not skip_rss and rss_new_items and scope.get("RSS", True) and display_regions.get("RSS", True):
             for stat_idx, stat in enumerate(rss_new_items):
                 for title_idx, title_data in enumerate(stat.get("titles", [])):
-                    titles_to_translate.append(title_data.get("title", ""))
+                    t = title_data.get("title", "")
+                    if target_is_chinese and self._is_chinese_text(t):
+                        skipped_chinese += 1
+                        continue
+                    titles_to_translate.append(t)
                     title_locations.append(("rss_new_items", stat_idx, title_idx))
 
         # 5. 独立展示区 - 热榜平台
         if standalone_data and scope.get("STANDALONE", True) and display_regions.get("STANDALONE", False):
             for plat_idx, platform in enumerate(standalone_data.get("platforms", [])):
                 for item_idx, item in enumerate(platform.get("items", [])):
-                    titles_to_translate.append(item.get("title", ""))
+                    t = item.get("title", "")
+                    if target_is_chinese and self._is_chinese_text(t):
+                        skipped_chinese += 1
+                        continue
+                    titles_to_translate.append(t)
                     title_locations.append(("standalone_platforms", plat_idx, item_idx))
 
             # 6. 独立展示区 - RSS 源（跳过已翻译的）
             if not skip_rss:
                 for feed_idx, feed in enumerate(standalone_data.get("rss_feeds", [])):
                     for item_idx, item in enumerate(feed.get("items", [])):
-                        titles_to_translate.append(item.get("title", ""))
+                        t = item.get("title", "")
+                        if target_is_chinese and self._is_chinese_text(t):
+                            skipped_chinese += 1
+                            continue
+                        titles_to_translate.append(t)
                         title_locations.append(("standalone_rss", feed_idx, item_idx))
+
+        if skipped_chinese:
+            print(f"[翻译] 跳过 {skipped_chinese} 条已是中文的标题（无需翻译）")
 
         if not titles_to_translate:
             print("[翻译] 没有需要翻译的内容")
