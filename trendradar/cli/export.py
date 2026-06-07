@@ -118,7 +118,7 @@ def export_rss(db_path: Path, per_source_limit: int, limit: Optional[int] = None
     for fid in feed_ids:
         cur.execute(
             """
-            SELECT i.title, i.translated_title, i.url, i.summary, i.published_at,
+            SELECT i.title, i.url, i.summary, i.published_at,
                    i.feed_id, f.name as feed_name
             FROM rss_items i
             JOIN rss_feeds f ON i.feed_id = f.id
@@ -129,10 +129,11 @@ def export_rss(db_path: Path, per_source_limit: int, limit: Optional[int] = None
             (fid, per_source_limit),
         )
         for r in cur.fetchall():
-            display_title = r["translated_title"] or r["title"]
+            # 翻译已下放到 notification 层（in-memory），rss_items 不再存 translated_title。
+            # 输出 title/original_title 两个字段保持下游 Hermes 解析契约不变。
             items.append(
                 {
-                    "title": display_title,
+                    "title": r["title"],
                     "original_title": r["title"],
                     "url": r["url"] or "",
                     "source": r["feed_name"] or r["feed_id"],
