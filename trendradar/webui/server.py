@@ -286,16 +286,54 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         try:
             from trendradar.core import load_config
             from trendradar.context import AppContext
-            from trendradar.storage import StorageManager
 
             # 加载配置
             config = load_config()
             ctx = AppContext(config)
-            sm = ctx.get_storage_manager()
+            # 注意：ctx.get_storage_manager() 走的是 trendradar.storage.get_storage_manager 的
+            # 模块级单例。webui 是长进程，单例里的 LocalStorageBackend._db_connections 缓存
+            # 是 webui 启动时打开的连接，可能拿不到后续 "立即爬取" 子进程写入的新数据。
+            # 用 force_new=True 强制每次请求都拿全新的 storage manager，避免读到空 DB 视图。
+            from trendradar.storage import get_storage_manager as _factory_sm
+            sm = _factory_sm(force_new=True)
 
             # 获取已存储的数据
             all_results, id_to_name, title_info = ctx.read_today_titles(quiet=True)
             if not all_results:
+                # 区分两种"空"：DB 完全没数据 vs DB 有数据但被当前配置过滤掉（用户误关平台）
+                # 后者更常见也更让人困惑，给个具体可操作的提示
+                try:
+                    backend = sm.get_backend()
+                    raw = backend.get_today_all_data() if hasattr(backend, "get_today_all_data") else None
+                    if raw and getattr(raw, "items", None):
+                        raw_ids = sorted({it.source_id for it in raw.items if getattr(it, "source_id", None)})
+                        enabled_ids = [p["id"] for p in ctx.platforms]
+                        missing = [pid for pid in raw_ids if pid not in enabled_ids]
+                        if not enabled_ids:
+                            self._send_json(400, {
+                                "success": False,
+                                "message": (
+                                    f"数据库里有 {len(raw.items)} 条数据（{len(raw_ids)} 个平台），"
+                                    f"但当前配置已禁用所有平台。请到 config.html → 平台 启用至少一个后再生成报告。"
+                                ),
+                                "hint": "all_platforms_disabled",
+                                "raw_platform_ids": raw_ids,
+                            })
+                            return
+                        if missing:
+                            self._send_json(400, {
+                                "success": False,
+                                "message": (
+                                    f"数据库里有 {len(raw.items)} 条数据，但当前配置只启用了 {len(enabled_ids)} 个平台，"
+                                    f"过滤后无数据。请到 config.html → 平台 启用缺失的平台，或重新爬取。"
+                                ),
+                                "hint": "platform_filter_mismatch",
+                                "enabled_platform_ids": enabled_ids,
+                                "raw_platform_ids": raw_ids,
+                            })
+                            return
+                except Exception:
+                    pass
                 self._send_json(400, {"success": False, "message": "没有可用的数据，请先爬取"})
                 return
 
