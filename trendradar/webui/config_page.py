@@ -467,9 +467,12 @@ def render_config_page() -> str:
                 </div>
                 <div class="form-row">
                     <div class="form-group half">
-                        <label class="form-label">API Key</label>
+                        <label class="form-label">API Key <span id="ai-api-key-status" style="font-size:11px;font-weight:400;color:#059669;margin-left:6px;"></span></label>
                         <input type="password" id="ai-api-key" placeholder="sk-..."
                             onchange="updateConfig('ai.api_key', this.value)">
+                        <div style="font-size:11px;color:#6b7280;margin-top:2px;">
+                            真实 key 会被自动写入 <code>docker/.env</code>（gitignored），表单仅显示占位符
+                        </div>
                     </div>
                     <div class="form-group half">
                         <label class="form-label">API 基础地址 <span class="optional">可选</span></label>
@@ -985,6 +988,17 @@ def render_config_page() -> str:
             // AI
             const ai = getValue('ai') || {};
             setInput('ai-api-key', ai.api_key);
+            // 真实 key 在 .env，config.yaml 只含占位符；当 AI_API_KEY 环境变量已配置时显示"已加载"提示
+            const statusEl = document.getElementById('ai-api-key-status');
+            if (statusEl) {
+                if (ai.api_key === 'YOUR_API_KEY_HERE' || !ai.api_key) {
+                    statusEl.textContent = '（当前从环境变量加载，真实 key 不会显示在表单中）';
+                    statusEl.style.color = '#059669';
+                } else {
+                    statusEl.textContent = '（当前 key 直接写在 config.yaml 中）';
+                    statusEl.style.color = '#b45309';
+                }
+            }
             setInput('ai-api-base', ai.api_base);
             setInput('ai-timeout', ai.timeout);
             setInput('ai-temperature', ai.temperature);

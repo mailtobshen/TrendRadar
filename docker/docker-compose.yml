@@ -11,6 +11,9 @@ services:
       - ../config:/app/config
       - ../output:/app/output
       - ./.env:/app/.env     # 让 WebUI 能在容器内写 AI_API_KEY（gitignored）
+      # 关键：bind mount 源码让容器总是用最新代码，避免 docker build 失败导致镜像陈旧
+      # /app 下其它子目录（.venv, manage.py）仍来自镜像；只覆盖 trendradar 包
+      - ../trendradar:/app/trendradar
 
     # 加载 docker/.env：复制 .env.example 为 .env 后填入真实值即可。
     # required: false 保证首次 clone 下来没 .env 时 docker compose 不会硬挂掉，
