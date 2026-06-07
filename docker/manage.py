@@ -165,13 +165,25 @@ def show_status():
     print(f"    IMMEDIATE_RUN: {immediate_run}")
 
     # 检查配置文件
-    config_files = ["/app/config/config.yaml", "/app/config/frequency_words.txt"]
+    # config.yaml + frequency_words.txt 始终必需；ai_interests.txt 仅在 AI 启用时必需
+    config_files = [
+        ("/app/config/config.yaml", True),
+        ("/app/config/frequency_words.txt", True),
+    ]
+    if os.environ.get("AI_ANALYSIS_ENABLED", "").lower() == "true":
+        config_files.append(("/app/config/ai_interests.txt", True))
+    else:
+        config_files.append(("/app/config/ai_interests.txt", False))
+
     print("  📁 配置文件:")
-    for file_path in config_files:
+    for file_path, required in config_files:
+        name = Path(file_path).name
         if Path(file_path).exists():
-            print(f"    ✅ {Path(file_path).name}")
+            print(f"    ✅ {name}")
+        elif required:
+            print(f"    ❌ {name} 缺失（必需）")
         else:
-            print(f"    ❌ {Path(file_path).name} 缺失")
+            print(f"    ⚠️  {name} 缺失（启用 AI 时必需，当前未启用）")
 
     # 检查关键文件
     key_files = [

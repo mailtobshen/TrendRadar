@@ -1,9 +1,18 @@
 #!/bin/bash
 set -e
 
-# 检查配置文件
-if [ ! -f "/app/config/config.yaml" ] || [ ! -f "/app/config/frequency_words.txt" ]; then
-    echo "❌ 配置文件缺失"
+# 检查必需配置文件
+# config.yaml + frequency_words.txt 始终必需；ai_interests.txt 仅在 AI 启用时必需
+if [ ! -f "/app/config/config.yaml" ]; then
+    echo "❌ 必需配置文件缺失: /app/config/config.yaml"
+    exit 1
+fi
+if [ ! -f "/app/config/frequency_words.txt" ]; then
+    echo "❌ 必需配置文件缺失: /app/config/frequency_words.txt"
+    exit 1
+fi
+if [ "${AI_ANALYSIS_ENABLED:-false}" = "true" ] && [ ! -f "/app/config/ai_interests.txt" ]; then
+    echo "❌ AI_ANALYSIS_ENABLED=true 但 ai_interests.txt 缺失: /app/config/ai_interests.txt"
     exit 1
 fi
 

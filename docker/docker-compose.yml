@@ -11,6 +11,13 @@ services:
       - ../config:/app/config
       - ../output:/app/output
 
+    # 加载 docker/.env：复制 .env.example 为 .env 后填入真实值即可。
+    # required: false 保证首次 clone 下来没 .env 时 docker compose 不会硬挂掉，
+    # 此时仍可通过 host shell 环境变量或 `docker compose --env-file .env up` 注入。
+    env_file:
+      - path: ./.env
+        required: false
+
     environment:
       - TZ=Asia/Shanghai
       # Web 服务器
