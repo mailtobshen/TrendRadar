@@ -261,10 +261,18 @@ def render_config_page() -> str:
             padding: 14px 20px; border-radius: 10px;
             font-size: 14px; font-weight: 500; color: white;
             box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-            transform: translateX(120%); transition: transform 0.3s ease;
+            transform: translateX(120%);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.3s ease, opacity 0.3s ease;
             z-index: 1000; max-width: 360px; word-break: break-word;
+            cursor: pointer;
         }
-        .toast.show { transform: translateX(0); }
+        .toast.show {
+            transform: translateX(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
         .toast.success { background: #22c55e; }
         .toast.error { background: #ef4444; }
         .rss-test-status { font-size: 12px; margin-left: 6px; }
@@ -1863,13 +1871,42 @@ def render_config_page() -> str:
             if (str == null) return '';
             return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
-        function showToast(message, type) {
+        function showToast(message, type, duration) {
+            // 默认 3 秒后自动消失（duration 可由调用方覆盖）。
+            // 关键：toast 位于 top:20px right:20px，会挡住"返回报告"按钮，
+            // 必须保证 3 秒后彻底不再拦截鼠标/视觉残留。
             const toast = document.getElementById('toast');
+            if (!toast) return;
             toast.textContent = message;
             toast.className = 'toast ' + type;
+            // 强制重排，确报连续触发时动画能播
+            void toast.offsetWidth;
             requestAnimationFrame(() => toast.classList.add('show'));
-            setTimeout(() => toast.classList.remove('show'), 3000);
+
+            // 清理之前未完成的 timer，避免快速连发时 timer 串掉
+            if (showToast._timer) clearTimeout(showToast._timer);
+            const ms = (typeof duration === 'number' && duration > 0) ? duration : 3000;
+            showToast._timer = setTimeout(() => {
+                toast.classList.remove('show');
+                // 兜底：CSS transition 0.3s 后即便 .show 残留，opacity 也归 0 + 不可点击
+                setTimeout(() => {
+                    if (!toast.classList.contains('show')) {
+                        toast.style.opacity = '0';
+                        toast.style.pointerEvents = 'none';
+                    }
+                }, 350);
+            }, ms);
         }
+
+        // 点击 toast 立即关闭（应急逃生口）
+        document.getElementById('toast')?.addEventListener('click', () => {
+            const toast = document.getElementById('toast');
+            if (!toast) return;
+            toast.classList.remove('show');
+            toast.style.opacity = '0';
+            toast.style.pointerEvents = 'none';
+            if (showToast._timer) clearTimeout(showToast._timer);
+        });
 
         // 快捷键
         document.addEventListener('keydown', (e) => {
