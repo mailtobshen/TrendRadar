@@ -277,7 +277,7 @@ advanced:
   crawler:
     request_interval: 2000
     use_proxy: true
-    default_proxy: http://127.0.0.1:10808
+    default_proxy: http://172.25.128.1:1080
   rss:
     request_interval: 1000
     timeout: 15

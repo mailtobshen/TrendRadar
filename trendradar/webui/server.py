@@ -16,6 +16,7 @@ TrendRadar WebUI HTTP 服务器
 import fcntl
 import json
 import os
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -25,6 +26,7 @@ from datetime import datetime
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from socketserver import ThreadingMixIn
+from typing import Optional
 from urllib.parse import urlparse
 
 from trendradar.webui.config_page import render_config_page
@@ -167,14 +169,10 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             old_config = load_structured_config(CONFIG_YAML_PATH) if config is not None else {}
 
             # 写入文件（带锁）
+            # ai.api_key 直接持久化：原版会静默替换为 YOUR_API_KEY_HERE 占位符，
+            # 导致用户在表单里填的真实 key 永远不生效，运行时只能走 AI_API_KEY 环境变量。
+            # 这里改为按用户提交保存，让 form 行为符合预期。
             if config is not None:
-                # 强制把 ai.api_key 还原为占位符，真实 key 必须走 AI_API_KEY 环境变量
-                # （避免 WebUI 表单误把真实 key 写进 config.yaml 后被 git 提交）
-                ai_section = config.get("ai") if isinstance(config, dict) else None
-                if isinstance(ai_section, dict):
-                    submitted_key = (ai_section.get("api_key") or "").strip()
-                    if submitted_key and submitted_key != "YOUR_API_KEY_HERE":
-                        ai_section["api_key"] = "YOUR_API_KEY_HERE"
                 save_structured_config(CONFIG_YAML_PATH, config)
             if frequency_words is not None:
                 save_structured_frequency_words(FREQUENCY_WORDS_PATH, frequency_words)
@@ -192,6 +190,16 @@ class WebUIHandler(SimpleHTTPRequestHandler):
                     trigger_result = self._trigger_crawl()
 
             response = {"success": True, "message": "配置保存成功"}
+            # 若用户填了真实 api_key 且未设置 AI_API_KEY 环境变量，给个轻提示
+            if config is not None:
+                ai_section = config.get("ai") if isinstance(config, dict) else None
+                if isinstance(ai_section, dict):
+                    key = (ai_section.get("api_key") or "").strip()
+                    if key and key != "YOUR_API_KEY_HERE" and not os.environ.get("AI_API_KEY", "").strip():
+                        response["hint"] = (
+                            "ai.api_key 已写入 config.yaml。运行时仍优先使用 AI_API_KEY 环境变量（如已设置）。"
+                            "若需彻底切换为配置驱动，请 unset AI_API_KEY。"
+                        )
             if trigger_result:
                 response["triggered"] = trigger_result
 
@@ -201,12 +209,49 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json(500, {"success": False, "message": f"保存失败: {e}"})
 
+    @staticmethod
+    def _check_proxy_reachable() -> Optional[str]:
+        """
+        检查 config.yaml 中启用的代理是否可达。返回 None 表示通过/未启用，
+        返回字符串表示不可达的具体原因（用于在 API 响应里直接告诉用户）。
+        """
+        try:
+            cfg = load_structured_config(CONFIG_YAML_PATH)
+        except Exception:
+            return None
+        adv = cfg.get("advanced", {}) if isinstance(cfg, dict) else {}
+        crawler = adv.get("crawler", {}) if isinstance(adv, dict) else {}
+        if not crawler.get("use_proxy", False):
+            return None
+        proxy = (crawler.get("default_proxy") or "").strip()
+        if not proxy:
+            return "已开启 use_proxy 但 default_proxy 为空"
+        # 解析 host:port（支持 http://, socks5://）
+        bare = proxy.split("://", 1)[-1]
+        if ":" not in bare:
+            return f"代理地址格式无法解析: {proxy}"
+        host, port = bare.rsplit(":", 1)
+        try:
+            with socket.create_connection((host, int(port)), timeout=2):
+                return None
+        except Exception as e:
+            return f"代理不可达 {proxy}：{type(e).__name__}: {e}"
+
     def _trigger_crawl(self) -> dict:
         """触发爬取（内部方法，返回结果字典）"""
         with TRIGGER_LOCK:
             status = self._read_status()
             if status.get("status") == "running":
                 return {"success": False, "message": "爬取任务正在运行中"}
+
+            # 代理连通性预检：use_proxy=true 但代理不可达时，11 个热榜平台会全部失败
+            # 并触发"数据一致性检查失败"。提前拦截能省下用户一次无效爬取。
+            proxy_err = self._check_proxy_reachable()
+            if proxy_err:
+                return {
+                    "success": False,
+                    "message": f"爬取前预检失败：{proxy_err}。请到 config.html 关闭 use_proxy 或修正代理地址后再触发。",
+                }
 
             try:
                 process = subprocess.Popen(
