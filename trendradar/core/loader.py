@@ -339,6 +339,10 @@ def _load_ai_translation_config(config_data: Dict) -> Dict:
             "RSS": scope.get("rss", True),
             "STANDALONE": scope.get("standalone", True),
         },
+        # 入库前翻译：RSS 抓取完、save_rss_data 入库前完成 AI 翻译，
+        # 让 DB 直接存中文标题，避免后续报表/通知/webui 各环节再次翻译。
+        # 设为 false 时回退到"报表生成时翻译"的旧行为。
+        "PRE_TRANSLATE_ON_CRAWL": trans_config.get("pre_translate_on_crawl", True),
     }
 
 

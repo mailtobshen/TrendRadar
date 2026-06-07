@@ -27,9 +27,11 @@ from trendradar.crawler import DataFetcher
 from trendradar.storage import convert_crawl_results_to_news_data
 from trendradar.utils.time import DEFAULT_TIMEZONE, is_within_days, calculate_days_old
 from trendradar.ai import AIAnalyzer, AIAnalysisResult
+from trendradar.ai.translator import AITranslator
 from trendradar.core.scheduler import ResolvedSchedule
 from trendradar.core.cdn import fetch_with_fallback
 from trendradar.cli.export import build_parser as _build_export_subparser
+from trendradar.notification.dispatcher import NotificationDispatcher
 
 
 def _parse_version(version_str: str) -> Tuple[int, int, int]:
@@ -862,18 +864,22 @@ class NewsAnalyzer:
                 standalone_data=standalone_data
             )
 
-        # 翻译 RSS 内容（如果启用）— 在 HTML 生成前执行，确保网页版也能展示翻译内容
+        # 翻译 RSS/独立展示区（如果启用）— 在 HTML 生成前执行，确保网页版也能展示翻译内容
         # 同时翻译 standalone_data，避免独立展示区出现未翻译的英文标题
         # 热榜翻译在推送时由 dispatch_all 处理 report_data
+        # 若启用了 pre_translate_on_crawl（默认），RSS 已在 fetch 后入库前翻译过，
+        # 此处跳过 rss_items / rss_new_items 翻译（避免重复调用 AI），
+        # 仅翻译 standalone（若 rss_feeds 部分仍需保险也一起跑）。
         trans_config = self.ctx.config.get("AI_TRANSLATION", {})
         if trans_config.get("ENABLED", False):
             dispatcher = self.ctx.create_notification_dispatcher()
             display_regions = self.ctx.config.get("DISPLAY", {}).get("REGIONS", {})
+            pre_translated = trans_config.get("PRE_TRANSLATE_ON_CRAWL", True)
             _, rss_items, rss_new_items, standalone_data = \
                 dispatcher.translate_content(
                     report_data={"stats": [], "new_titles": []},
-                    rss_items=rss_items,
-                    rss_new_items=rss_new_items,
+                    rss_items=None if pre_translated else rss_items,
+                    rss_new_items=None if pre_translated else rss_new_items,
                     standalone_data=standalone_data,
                     display_regions=display_regions,
                 )
@@ -1169,6 +1175,9 @@ class NewsAnalyzer:
             # 抓取数据
             rss_data = fetcher.fetch_all()
 
+            # 入库前 AI 翻译：让 DB 里的 rss_items.title 直接存中文
+            self._pre_translate_rss_titles(rss_data)
+
             # 保存到存储后端
             if self.storage_manager.save_rss_data(rss_data):
                 print(f"[RSS] 数据已保存到存储后端")
@@ -1186,6 +1195,66 @@ class NewsAnalyzer:
         except Exception as e:
             print(f"[RSS] 抓取失败: {e}")
             return None, None, None, set()
+
+    def _pre_translate_rss_titles(self, rss_data) -> None:
+        """
+        入库前翻译 RSS 标题（in-place 改 rss_data.items[feed_id][idx].title）
+
+        设计目标：让 DB 里的 rss_items.title 直接存中文，避免后续报表/通知/webui 各环节
+        重复翻译、以及"AI 返回原文未翻译"漏翻。失败回退 = 原标题入库（与现有 dispatcher
+        翻译流的"全失败 → 原数据返回"行为一致）。
+        """
+        from trendradar.storage.base import RSSData as _RSSData
+        if not isinstance(rss_data, _RSSData) or not rss_data.items:
+            return
+
+        trans_config = self.ctx.config.get("AI_TRANSLATION", {})
+        if not trans_config.get("ENABLED", False):
+            return
+        if not trans_config.get("PRE_TRANSLATE_ON_CRAWL", True):
+            return
+        scope = trans_config.get("SCOPE", {})
+        if not scope.get("RSS", True):
+            return
+
+        # 1. 收集非中文标题 + 位置映射（仅在 target 是中文时启用中文预检）
+        target_lang = trans_config.get("LANGUAGE", "English")
+        target_is_chinese = (
+            "中" in target_lang
+            or "chinese" in target_lang.lower()
+            or "zh" in target_lang.lower()
+        )
+        titles: List[str] = []
+        locations: List[Tuple[str, int]] = []
+        for feed_id, items in rss_data.items.items():
+            for idx, item in enumerate(items):
+                t = (item.title or "").strip()
+                if not t:
+                    continue
+                if target_is_chinese and NotificationDispatcher._is_chinese_text(t):
+                    continue
+                titles.append(t)
+                locations.append((feed_id, idx))
+
+        if not titles:
+            return
+
+        # 2. 调 AI 翻译
+        try:
+            ai_config = self.ctx.config.get("AI", {})
+            translator = AITranslator(trans_config, ai_config)
+            result = translator.translate_batch(titles)
+        except Exception as e:
+            print(f"[RSS] 入库前翻译异常（原标题入库）: {type(e).__name__}: {str(e)[:100]}")
+            return
+
+        # 3. 回填（in-place 改 title；翻译失败的保留原标题）
+        ok = 0
+        for (feed_id, idx), tr in zip(locations, result.results):
+            if tr.success and tr.translated_text and tr.translated_text.strip():
+                rss_data.items[feed_id][idx].title = tr.translated_text
+                ok += 1
+        print(f"[RSS] 入库前翻译: {ok}/{len(titles)} 成功")
 
     def _process_rss_data_by_mode(self, rss_data) -> Tuple[Optional[List[Dict]], Optional[List[Dict]], Optional[List[Dict]], set]:
         """

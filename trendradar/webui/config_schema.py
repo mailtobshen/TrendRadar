@@ -207,6 +207,7 @@ def get_default_config() -> Dict[str, Any]:
             "language": "中文",
             "prompt_file": "ai_translation_prompt.txt",
             "scope": {"hotlist": False, "rss": True, "standalone": True},
+            "pre_translate_on_crawl": True,
         },
         "tags": {
             "mode": "auto",
