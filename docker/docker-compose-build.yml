@@ -12,6 +12,7 @@ services:
     volumes:
       - ../config:/app/config
       - ../output:/app/output
+      - ./.env:/app/.env     # 让 WebUI 能在容器内写 AI_API_KEY（gitignored）
 
     # 加载 docker/.env：复制 .env.example 为 .env 后填入真实值即可。
     # required: false 保证首次 clone 下来没 .env 时 docker compose 不会硬挂掉，

@@ -127,6 +127,46 @@ class WebUIHandler(SimpleHTTPRequestHandler):
         except Exception as e:
             self._send_json(500, {"success": False, "message": f"读取配置失败: {e}"})
 
+    def _persist_api_key_to_env(self, api_key: str) -> bool:
+        """
+        把 API key 写入 .env 文件（gitignored），并立即设置到当前进程环境变量。
+
+        容器内：cwd=/app，compose volume 挂载 ./docker/.env 到 /app/.env。
+        主机直跑（非 Docker）：尝试 ./docker/.env 和 ./../docker/.env。
+
+        Returns:
+            bool: True 表示成功写入（+ 已设置 os.environ），False 表示所有候选路径都失败
+        """
+        import re
+        candidates = [
+            Path("/app/.env"),     # 容器内
+            Path("./docker/.env"), # 主机当前目录
+            Path("../docker/.env"),
+        ]
+        for env_path in candidates:
+            try:
+                # 找到已有的 AI_API_KEY 行就替换，否则追加
+                content = env_path.read_text() if env_path.exists() else ""
+                new_content, count = re.subn(
+                    r"^AI_API_KEY=.*$",
+                    f"AI_API_KEY={api_key}",
+                    content,
+                    flags=re.MULTILINE,
+                )
+                if count == 0:
+                    if new_content and not new_content.endswith("\n"):
+                        new_content += "\n"
+                    new_content += f"AI_API_KEY={api_key}\n"
+                env_path.parent.mkdir(parents=True, exist_ok=True)
+                env_path.write_text(new_content)
+                # 立即让当前进程生效（无需重启容器）
+                os.environ["AI_API_KEY"] = api_key
+                print(f"[WebUI] ai.api_key 已写入 {env_path}（gitignored）")
+                return True
+            except Exception as e:
+                print(f"[WebUI] 写入 {env_path} 失败: {type(e).__name__}: {e}")
+        return False
+
     def _api_post_config(self):
         """API：保存结构化配置"""
         try:
@@ -168,10 +208,31 @@ class WebUIHandler(SimpleHTTPRequestHandler):
             # 保存前读取旧配置，用于对比 tags 是否变化
             old_config = load_structured_config(CONFIG_YAML_PATH) if config is not None else {}
 
+            # ai.api_key 真实 key 自动落 .env：用户在 WebUI 填了真实 key 时，
+            # 改写 .env 中的 AI_API_KEY（gitignore 保护），config.yaml 始终保持占位符
+            # YOUR_API_KEY_HERE，避免真实 key 被 commit 到 git。
+            # 容器内 cwd=/app，./.env 挂载在 /app/.env。
+            api_key_persistence_hint = None
+            if config is not None:
+                ai_section = config.get("ai") if isinstance(config, dict) else None
+                if isinstance(ai_section, dict):
+                    key = (ai_section.get("api_key") or "").strip()
+                    if key and key != "YOUR_API_KEY_HERE":
+                        persisted = self._persist_api_key_to_env(key)
+                        # config.yaml 始终保持占位符（无论是否落盘成功）
+                        ai_section["api_key"] = "YOUR_API_KEY_HERE"
+                        if persisted:
+                            api_key_persistence_hint = (
+                                "ai.api_key 已自动写入 .env（gitignored），config.yaml 保持占位符。"
+                                "下次容器启动会自动加载；当前进程也已立即生效。"
+                            )
+                        else:
+                            api_key_persistence_hint = (
+                                "ai.api_key 落 .env 失败（容器可能未挂载 .env）。"
+                                "已暂存 config.yaml 但 git push 前请手动替换为占位符避免泄露。"
+                            )
+
             # 写入文件（带锁）
-            # ai.api_key 直接持久化：原版会静默替换为 YOUR_API_KEY_HERE 占位符，
-            # 导致用户在表单里填的真实 key 永远不生效，运行时只能走 AI_API_KEY 环境变量。
-            # 这里改为按用户提交保存，让 form 行为符合预期。
             if config is not None:
                 save_structured_config(CONFIG_YAML_PATH, config)
             if frequency_words is not None:
@@ -190,16 +251,8 @@ class WebUIHandler(SimpleHTTPRequestHandler):
                     trigger_result = self._trigger_crawl()
 
             response = {"success": True, "message": "配置保存成功"}
-            # 若用户填了真实 api_key 且未设置 AI_API_KEY 环境变量，给个轻提示
-            if config is not None:
-                ai_section = config.get("ai") if isinstance(config, dict) else None
-                if isinstance(ai_section, dict):
-                    key = (ai_section.get("api_key") or "").strip()
-                    if key and key != "YOUR_API_KEY_HERE" and not os.environ.get("AI_API_KEY", "").strip():
-                        response["hint"] = (
-                            "ai.api_key 已写入 config.yaml。运行时仍优先使用 AI_API_KEY 环境变量（如已设置）。"
-                            "若需彻底切换为配置驱动，请 unset AI_API_KEY。"
-                        )
+            if api_key_persistence_hint:
+                response["hint"] = api_key_persistence_hint
             if trigger_result:
                 response["triggered"] = trigger_result
 
