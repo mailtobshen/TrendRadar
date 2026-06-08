@@ -637,6 +637,18 @@ def stop_webserver():
             pass
 
 
+def restart_webserver():
+    """重启 Web 服务器（重新加载代码 + 清空缓存）
+
+    使用场景：改了 /app/trendradar/webui/ 下的代码后（config_page.py / server.py 等），
+    bind mount 同步到容器但 Python 进程不自动 reload——必须重启 WebUI 子进程。
+    """
+    print("🔄 重启 Web 服务器...")
+    stop_webserver()
+    print()
+    start_webserver()
+
+
 def webserver_status():
     """查看 Web 服务器状态"""
     print("🌐 Web 服务器状态:")
@@ -679,6 +691,7 @@ def show_help():
   restart          - 重启说明
   start_webserver  - 启动 Web 服务器托管 output 目录
   stop_webserver   - 停止 Web 服务器
+  restart_webserver - 重启 Web 服务器（改了 webui 代码后用）
   webserver_status - 查看 Web 服务器状态
   help             - 显示此帮助
 
@@ -716,6 +729,7 @@ def show_help():
   5. Web 服务器管理:
      - 启动: start_webserver
      - 停止: stop_webserver
+     - 重启: restart_webserver（改 webui 代码后用）
      - 状态: webserver_status
      - 访问: http://localhost:8080
 """
@@ -737,6 +751,7 @@ def main():
         "restart": restart_supercronic,
         "start_webserver": start_webserver,
         "stop_webserver": stop_webserver,
+        "restart_webserver": restart_webserver,
         "webserver_status": webserver_status,
         "help": show_help,
     }
