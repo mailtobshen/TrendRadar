@@ -145,8 +145,7 @@ display:
     standalone: true
     ai_analysis: true
   standalone:
-    platforms:
-    - wallstreetcn-hot
+    platforms: []
     rss_feeds:
     - hacker-news
     - yahoo-finance
@@ -244,7 +243,8 @@ ai_translation:
     hotlist: false
     rss: true
     standalone: true
-  batch_size: 5   # 每批翻译条数。值越小越不易触发内容审核拖累整批
+  pre_translate_on_crawl: true
+  batch_size: 5
 tags:
   mode: manual
   items:
