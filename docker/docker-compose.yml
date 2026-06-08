@@ -1,6 +1,12 @@
 services:
   trendradar:
-    image: wantcat/trendradar:latest
+    # 本地 build（不用上游 wantcat/trendradar 镜像——那个是上游仓库的，
+    # 跟你本地代码无关）。首次 docker compose up 会自动 build 本地镜像。
+    # 加 --build 强制重建（不需要先手动 docker compose build）。
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: trendradar:local   # 本地 build 后打这个 tag，便于识别
     container_name: trendradar
     restart: unless-stopped
 
@@ -67,7 +73,11 @@ services:
       - IMMEDIATE_RUN=${IMMEDIATE_RUN:-true}
 
   trendradar-mcp:
-    image: wantcat/trendradar-mcp:latest
+    # 本地 build（不用上游 wantcat/trendradar-mcp 镜像）
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp
+    image: trendradar-mcp:local
     container_name: trendradar-mcp
     restart: unless-stopped
 
