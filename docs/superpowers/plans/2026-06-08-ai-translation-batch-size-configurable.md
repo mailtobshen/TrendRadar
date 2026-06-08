@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 `ai_translation.batch_size` 暴露为可配置项——yaml + schema + WebUI HTML + WebUI JS
+**Goal:** 把 `ai_translation.batch_size` 暴露为可配置项——yaml + schema + WebUI HTML + WebUI JS + loader 翻译字段 + translator 空值判 5
 
-**Architecture:** 4 文件 ~15 行改动。完全不动 `translator.py`（commit 09de799 已经让它读 yaml `batch_size`）。
+**Architecture:** 6 文件 ~25 行改动。loader 是 yaml 小写 key → 大写 dict 的转换层，必须让 loader 输出 `BATCH_SIZE` 字段，translator 才能读到大写 key。translator 自身做"空值判 5"逻辑（None / 缺省 / 0 / 负数 / 非整数 → 5；1~N 正整数 → 直接用）。
 
 **Tech Stack:** Python 3.12 / YAML / 原生 HTML+JS
 
@@ -20,6 +20,8 @@
 | `trendradar/webui/config_schema.py:205-211` | 默认值加 `batch_size: 5` |
 | `trendradar/webui/config_page.py:572-575` | 加每批翻译条数输入框 HTML |
 | `trendradar/webui/config_page.py:1035` | JS load 加一行 |
+| `trendradar/core/loader.py:325-346` `_load_ai_translation_config` | 加 `BATCH_SIZE: trans_config.get("batch_size", 5)` |
+| `trendradar/ai/translator.py:55-62` | 改读大写 `BATCH_SIZE` + 空值判 5（try/except 兜住 TypeError/ValueError；<1 视为空值） |
 
 ---
 
@@ -197,6 +199,160 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
+### Task 14: loader._load_ai_translation_config 加 BATCH_SIZE 字段
+
+**Files:**
+- Modify: `trendradar/core/loader.py:325-346`
+
+- [ ] **Step 1: 打开文件确认上下文**
+
+读 `trendradar/core/loader.py:325-346`，确认当前结构：
+
+```python
+def _load_ai_translation_config(config_data: Dict) -> Dict:
+    """加载 AI 翻译配置（功能配置，模型配置见 _load_ai_config）"""
+    trans_config = config_data.get("ai_translation", {})
+
+    enabled_env = _get_env_bool("AI_TRANSLATION_ENABLED")
+
+    scope = trans_config.get("scope", {})
+
+    return {
+        "ENABLED": enabled_env if enabled_env is not None else trans_config.get("enabled", False),
+        "LANGUAGE": _get_env_str("AI_TRANSLATION_LANGUAGE") or trans_config.get("language", "English"),
+        "PROMPT_FILE": trans_config.get("prompt_file", "ai_translation_prompt.txt"),
+        "SCOPE": {
+            "HOTLIST": scope.get("hotlist", True),
+            "RSS": scope.get("rss", True),
+            "STANDALONE": scope.get("standalone", True),
+        },
+        "PRE_TRANSLATE_ON_CRAWL": trans_config.get("pre_translate_on_crawl", True),
+    }
+```
+
+- [ ] **Step 2: 加 BATCH_SIZE 字段**
+
+参考 `_load_ai_filter_config`（line 354 `ai_filter.get("batch_size", 200)`）的写法。
+
+在 `"PRE_TRANSLATE_ON_CRAWL": trans_config.get("pre_translate_on_crawl", True),` 后面加：
+
+```python
+        # 每批翻译条数上限：避免单次 prompt 过大导致 AI 输出截断
+        # 值越小越不易触发内容审核拖累整批
+        "BATCH_SIZE": trans_config.get("batch_size", 5),
+```
+
+- [ ] **Step 3: 自检 loader 输出**
+
+```bash
+cd /home/administrator/TrendRadar
+python3 -c "
+import yaml
+from trendradar.core.loader import _load_ai_translation_config
+raw = yaml.safe_load(open('config/config.yaml'))
+out = _load_ai_translation_config(raw)
+print('BATCH_SIZE =', out.get('BATCH_SIZE'))
+assert out.get('BATCH_SIZE') == 5, f'expected 5, got {out.get(\"BATCH_SIZE\")}'
+print('✓ loader exposes BATCH_SIZE = 5')
+"
+```
+
+预期：
+```
+BATCH_SIZE = 5
+✓ loader exposes BATCH_SIZE = 5
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+cd /home/administrator/TrendRadar
+git add trendradar/core/loader.py
+git commit -m "fix(loader): _load_ai_translation_config 暴露 BATCH_SIZE 字段
+
+loader 是 yaml 小写 key → 大写 dict 的转换层。
+translator 读大写 BATCH_SIZE 必须由 loader 提供。
+修法是让 loader 输出 BATCH_SIZE 字段（跟 _load_ai_filter_config
+输出 BATCH_SIZE 对称）。
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 15: translator 改读大写 + 空值判 5
+
+**Files:**
+- Modify: `trendradar/ai/translator.py:55-62`
+
+- [ ] **Step 1: 打开文件确认上下文**
+
+读 `trendradar/ai/translator.py:50-60`，确认：
+
+```python
+        # 翻译配置
+        self.enabled = translation_config.get("ENABLED", False)
+        self.target_language = translation_config.get("LANGUAGE", "English")
+        self.scope = translation_config.get("SCOPE", {"HOTLIST": True, "RSS": True, "STANDALONE": True})
+        # 每批翻译条数上限：避免单次 prompt 过大导致 AI 输出截断
+        self.batch_size = max(1, int(translation_config.get("batch_size", 5)))
+```
+
+- [ ] **Step 2: 改 batch_size 行为**
+
+把第 55-56 行（注释 + batch_size 赋值）替换为：
+
+```python
+        # 每批翻译条数：避免单次 prompt 过大导致 AI 输出截断。
+        # 空值（None/缺省/0/负数/非整数）→ 用默认 5；其他正整数 → 直接使用配置值
+        raw = translation_config.get("BATCH_SIZE")
+        try:
+            parsed = int(raw) if raw is not None else 5
+        except (TypeError, ValueError):
+            parsed = 5
+        self.batch_size = parsed if parsed >= 1 else 5
+```
+
+- [ ] **Step 3: 自检——空值边界（8 case）**
+
+```bash
+cd /home/administrator/TrendRadar
+python3 -c "
+from trendradar.ai.translator import AITranslator
+
+t1 = AITranslator({'ENABLED': True}, {'api_key': 'x'}); assert t1.batch_size == 5
+t2 = AITranslator({'BATCH_SIZE': None}, {'api_key': 'x'}); assert t2.batch_size == 5
+t3 = AITranslator({'BATCH_SIZE': 0}, {'api_key': 'x'}); assert t3.batch_size == 5
+t4 = AITranslator({'BATCH_SIZE': -10}, {'api_key': 'x'}); assert t4.batch_size == 5
+t5 = AITranslator({'BATCH_SIZE': 'abc'}, {'api_key': 'x'}); assert t5.batch_size == 5
+t6 = AITranslator({'BATCH_SIZE': 1}, {'api_key': 'x'}); assert t6.batch_size == 1
+t7 = AITranslator({'BATCH_SIZE': 30}, {'api_key': 'x'}); assert t7.batch_size == 30
+t8 = AITranslator({'BATCH_SIZE': '7'}, {'api_key': 'x'}); assert t8.batch_size == 7
+print('ALL OK')
+"
+```
+
+预期：`ALL OK`
+
+- [ ] **Step 4: Commit**
+
+```bash
+cd /home/administrator/TrendRadar
+git add trendradar/ai/translator.py
+git commit -m "fix(translator): BATCH_SIZE 改回大写 + 空值判 5
+
+1. 改回大写 BATCH_SIZE（与同文件 ENABLED/LANGUAGE/SCOPE 风格一致；
+   loader 才是 yaml 小写 key → 大写 dict 的转换层）
+2. 实现用户要求的'空值判 5'：
+   - None / 缺省 / 0 / 负数 / 非整数 → 5
+   - 1 及以上正整数 → 直接用配置值
+3. try/except 兜住 TypeError + ValueError
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 3: 端到端验证 + push
 
 **Files:** 不改文件
@@ -254,6 +410,7 @@ git push origin master
 
 ## Self-Review
 
-1. **Spec 覆盖：** ✅ 任务 1（yaml + schema）/ ✅ 任务 2（HTML + JS）/ ✅ 任务 3（验证 + push）
+1. **Spec 覆盖：** ✅ 任务 1（yaml + schema）/ ✅ 任务 2（HTML + JS）/ ✅ 任务 14（loader 翻译 BATCH_SIZE）/ ✅ 任务 15（translator 大写 + 空值判 5）/ ✅ 任务 3（验证 + push）
 2. **占位符扫描：** grep "TODO|TBD|fill in|Similar to Task" — 0 hit
-3. **类型一致性：** `aiTrans.batch_size` 在 schema 默认值里是 `int: 5`，与 translator.py `int(translation_config.get("batch_size", 5))` 类型一致；`parseInt(this.value)||5` 处理空值/NaN
+3. **类型一致性：** `aiTrans.batch_size` 在 schema 默认值里是 `int: 5`，与 loader 输出的 `BATCH_SIZE: 5`（int）、translator 的 `int(raw) if raw is not None else 5` 类型一致；`parseInt(this.value)||5` 兜前端空值
+4. **链路完整性：** yaml `ai_translation.batch_size` (int) → loader `_load_ai_translation_config` 输出 `BATCH_SIZE` (int) → `__main__.py:1251` 喂给 `AITranslator` → translator 读大写 + 空值兜底。**8 个边界用例全过**（缺省/None/0/负数/字符串/1/30/字符串数字）
