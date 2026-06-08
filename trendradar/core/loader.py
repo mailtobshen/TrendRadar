@@ -343,6 +343,9 @@ def _load_ai_translation_config(config_data: Dict) -> Dict:
         # 让 DB 直接存中文标题，避免后续报表/通知/webui 各环节再次翻译。
         # 设为 false 时回退到"报表生成时翻译"的旧行为。
         "PRE_TRANSLATE_ON_CRAWL": trans_config.get("pre_translate_on_crawl", True),
+        # 每批翻译条数上限：避免单次 prompt 过大导致 AI 输出截断
+        # 1.0/0.5/0.25 降级档 + 触发内容审核时本批跳过。值越小越不易触发内容审核拖累整批
+        "BATCH_SIZE": trans_config.get("batch_size", 5),
     }
 
 
