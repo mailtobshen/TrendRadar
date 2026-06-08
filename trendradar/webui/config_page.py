@@ -590,6 +590,14 @@ def render_config_page() -> str:
                         </div>
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">每批翻译条数</label>
+                        <input type="number" id="ai-translation-batch-size" min="1"
+                            onchange="updateConfig('ai_translation.batch_size', parseInt(this.value)||5)">
+                        <div class="form-hint">每批发给 AI 的标题数（值越小越不易触发内容审核拖累整批，建议 5-30）</div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -1032,6 +1040,7 @@ def render_config_page() -> str:
             const aiTrans = getValue('ai_translation') || {};
             setToggle('ai-translation-enabled-toggle', aiTrans.enabled);
             setInput('ai-translation-language', aiTrans.language);
+            setInput('ai-translation-batch-size', aiTrans.batch_size);
             const transScope = aiTrans.scope || {};
             setCheckbox('ai-translation-scope-hotlist', transScope.hotlist);
             setCheckbox('ai-translation-scope-rss', transScope.rss);
