@@ -52,8 +52,14 @@ class AITranslator:
         self.enabled = translation_config.get("ENABLED", False)
         self.target_language = translation_config.get("LANGUAGE", "English")
         self.scope = translation_config.get("SCOPE", {"HOTLIST": True, "RSS": True, "STANDALONE": True})
-        # 每批翻译条数上限：避免单次 prompt 过大导致 AI 输出截断
-        self.batch_size = max(1, int(translation_config.get("batch_size", 5)))
+        # 每批翻译条数：避免单次 prompt 过大导致 AI 输出截断。
+        # 空值（None/缺省/0/负数/非整数）→ 用默认 5；其他正整数 → 直接使用配置值
+        raw = translation_config.get("BATCH_SIZE")
+        try:
+            parsed = int(raw) if raw is not None else 5
+        except (TypeError, ValueError):
+            parsed = 5
+        self.batch_size = parsed if parsed >= 1 else 5
 
         # 创建 AI 客户端（基于 LiteLLM）
         self.client = AIClient(ai_config)
