@@ -548,7 +548,13 @@ class NewsAnalyzer:
             # 设置 AI 分析使用的模式
             if result.success:
                 result.ai_mode = ai_mode
-                if result.error:
+                # 段 B (RSS+独立展示) 字段全空 + 用户配置启用了段 B → 段 B 被跳过
+                # 用 include_rss/include_standalone 判定"用户启用",避免当日 RSS 抓取为空时漏报
+                b_user_enabled = result.include_rss or result.include_standalone
+                b_empty = not result.rss_insights and not result.standalone_summaries
+                if b_user_enabled and b_empty:
+                    print("[AI] 分析完成（RSS+独立展示区段已跳过，详见上方日志）")
+                elif result.error:
                     # 成功但有警告（如 JSON 解析问题但使用了原始文本）
                     print(f"[AI] 分析完成（有警告: {result.error}）")
                 else:
