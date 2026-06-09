@@ -74,6 +74,10 @@ class NotificationDispatcher:
         """
         判断文本是否已经是目标语言（中文）— 若是则无需翻译，避免无意义的"AI 返回原文"假成功。
 
+        注意：CJK 统一表意文字 (U+4E00–U+9FFF) 同时覆盖中文、日文汉字、韩文汉字，
+        仅按该范围判定会把日文 / 韩文标题误判为"已是中文"而跳过翻译。
+        因此需要先排除包含日文假名 / 韩文 Hangul 的文本，再做 CJK 占比判断。
+
         Args:
             text: 待检测文本
             threshold: CJK 字符占比阈值（默认 0.3 = 30%）
@@ -83,6 +87,14 @@ class NotificationDispatcher:
         """
         if not text or not text.strip():
             return False
+        for ch in text:
+            cp = ord(ch)
+            # 日文假名：平假名 3040-309F、片假名 30A0-30FF
+            if 0x3040 <= cp <= 0x30FF:
+                return False
+            # 韩文 Hangul 音节 AC00-D7AF、Hangul Jamo 1100-11FF、兼容字母 3130-318F
+            if 0xAC00 <= cp <= 0xD7AF or 0x1100 <= cp <= 0x11FF or 0x3130 <= cp <= 0x318F:
+                return False
         cjk_count = sum(1 for ch in text if '一' <= ch <= '鿿')
         return cjk_count / max(len(text), 1) >= threshold
 
