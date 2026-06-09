@@ -15,7 +15,7 @@ import sys
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 import requests
 
