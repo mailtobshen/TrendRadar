@@ -304,7 +304,13 @@ def render_ai_analysis_html_rich(result: AIAnalysisResult) -> str:
                 <div class="ai-section">
                     <div class="ai-section-header">
                         <div class="ai-section-title">✨ AI 热点分析</div>
-                        <span class="ai-section-badge">AI</span>
+                        <span class="ai-section-badge">AI</span>"""
+    # 缓存标记：本时段之前的 AI 分析被复用（避免重复调 AI）
+    if getattr(result, "cached", False):
+        cached_at = getattr(result, "cached_at", "") or "?"
+        ai_html += f"""
+                        <span class="ai-section-cache" title="避免每 30 分钟重复调用 AI，HTML 复用本时段 {cached_at} 的分析结果">缓存 {cached_at}</span>"""
+    ai_html += """
                     </div>
                     <div class="ai-blocks-grid">"""
 

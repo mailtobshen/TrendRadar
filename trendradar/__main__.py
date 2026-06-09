@@ -34,6 +34,12 @@ from trendradar.cli.export import build_parser as _build_export_subparser
 from trendradar.notification.dispatcher import NotificationDispatcher
 
 
+# AI 分析结果内存缓存（同一天同一时段内复用，避免每 30 分钟重跑 AI 浪费 token）
+# 格式：{(date_str, period_key, mode): {"result": AIAnalysisResult, "generated_at": str}}
+# 容器内跨 supercronic tick 复用（同进程），重启后清空，下次跑批会重新生成。
+_ai_analysis_cache: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+
+
 def _parse_version(version_str: str) -> Tuple[int, int, int]:
     """解析版本号字符串为元组"""
     try:
@@ -475,6 +481,19 @@ class NewsAnalyzer:
             date_str = self.ctx.format_date()
             if scheduler.already_executed(schedule.period_key, "analyze", date_str):
                 print(f"[AI] 调度器: 时间段 {schedule.period_name or schedule.period_key} 今天已分析过，跳过")
+                # 复用本进程内已生成的 AI 分析结果（同一天同一时段内 30 分钟重复跑批不再重算）
+                cache_key = (date_str, schedule.period_key, mode)
+                cached = _ai_analysis_cache.get(cache_key)
+                if cached and cached.get("result") and cached["result"].success:
+                    cached_result = cached["result"]
+                    # 复制一份并标注是缓存版本，供前端展示 '上次分析于 XX:XX'
+                    import copy
+                    reused = copy.copy(cached_result)
+                    reused.cached = True
+                    reused.cached_at = cached.get("generated_at", "")
+                    print(f"[AI] 复用内存缓存的分析结果（生成于 {cached.get('generated_at', '?')}）")
+                    return reused
+                print(f"[AI] 无可用缓存，本时段 AI 区域将空")
                 return None
             else:
                 print(f"[AI] 调度器: 时间段 {schedule.period_name or schedule.period_key} 今天首次分析")
@@ -565,6 +584,16 @@ class NewsAnalyzer:
                     scheduler = self.ctx.create_scheduler()
                     date_str = self.ctx.format_date()
                     scheduler.record_execution(schedule.period_key, "analyze", date_str)
+
+                # 写入内存缓存，供本进程后续 30-min 跑批复用（同一天同一时段）
+                try:
+                    cache_key = (self.ctx.format_date(), schedule.period_key, mode)
+                    _ai_analysis_cache[cache_key] = {
+                        "result": result,
+                        "generated_at": self.ctx.get_time().strftime("%H:%M"),
+                    }
+                except Exception:
+                    pass
             elif result.skipped:
                 print(f"[AI] {result.error}")
             else:

@@ -834,6 +834,16 @@ def render_html_content(
                 border-radius: 4px;
             }
 
+            .ai-section-cache {
+                background: #fef3c7;
+                color: #92400e;
+                font-size: 11px;
+                font-weight: 500;
+                padding: 3px 8px;
+                border-radius: 4px;
+                border: 1px solid #fde68a;
+            }
+
             .ai-block {
                 margin-bottom: 16px;
                 padding: 16px;

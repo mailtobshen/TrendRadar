@@ -44,6 +44,10 @@ class AIAnalysisResult:
     include_rss: bool = True             # 是否启用 RSS 分析
     include_standalone: bool = False     # 是否启用独立展示区分析
 
+    # 缓存标记（不是真实 AI 输出，是上一次跑批的复用）
+    cached: bool = False                 # 是否为复用缓存
+    cached_at: str = ""                  # 原始生成时间 HH:MM
+
 
 class AIAnalyzer:
     """AI 分析器"""
