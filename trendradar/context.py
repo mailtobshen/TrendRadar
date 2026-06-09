@@ -283,6 +283,7 @@ class AppContext:
             global_filters=global_filters,
             weight_config=self.weight_config,
             max_news_per_keyword=self.config.get("MAX_NEWS_PER_KEYWORD", 0),
+            max_news_per_source_per_keyword=self.config.get("MAX_NEWS_PER_SOURCE_PER_KEYWORD", 0),
             sort_by_position_first=self.config.get("SORT_BY_POSITION_FIRST", False),
             is_first_crawl_func=self.is_first_crawl,
             convert_time_func=self.convert_time_display,
@@ -977,6 +978,7 @@ class AppContext:
         hotlist_stats = []
         rss_stats = []
         max_news = self.config.get("MAX_NEWS_PER_KEYWORD", 0)
+        max_news_per_source = self.config.get("MAX_NEWS_PER_SOURCE_PER_KEYWORD", 0)
         min_score = self.ai_filter_config.get("MIN_SCORE", 0)
 
         # current 模式：计算最新时间，只保留当前在榜的热榜新闻
@@ -1100,6 +1102,16 @@ class AppContext:
                     hotlist_titles.append(title_entry)
 
             if hotlist_titles:
+                if max_news_per_source > 0:
+                    per_source_seen: Dict[str, int] = {}
+                    filtered: List[Dict] = []
+                    for t in hotlist_titles:
+                        src = t.get("source_name", "")
+                        if per_source_seen.get(src, 0) >= max_news_per_source:
+                            continue
+                        per_source_seen[src] = per_source_seen.get(src, 0) + 1
+                        filtered.append(t)
+                    hotlist_titles = filtered
                 if max_news > 0:
                     hotlist_titles = hotlist_titles[:max_news]
                 hotlist_stats.append({
@@ -1110,6 +1122,16 @@ class AppContext:
                 })
 
             if rss_titles:
+                if max_news_per_source > 0:
+                    per_source_seen: Dict[str, int] = {}
+                    filtered: List[Dict] = []
+                    for t in rss_titles:
+                        src = t.get("source_name", "")
+                        if per_source_seen.get(src, 0) >= max_news_per_source:
+                            continue
+                        per_source_seen[src] = per_source_seen.get(src, 0) + 1
+                        filtered.append(t)
+                    rss_titles = filtered
                 if max_news > 0:
                     rss_titles = rss_titles[:max_news]
                 rss_stats.append({

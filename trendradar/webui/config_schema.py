@@ -122,6 +122,7 @@ def get_default_config() -> Dict[str, Any]:
             "sort_by_position_first": False,
             "rank_threshold": 5,
             "max_news_per_keyword": 0,
+            "max_news_per_source_per_keyword": 0,
         },
         "filter": {
             "method": "keyword",

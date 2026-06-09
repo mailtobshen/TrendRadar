@@ -102,6 +102,7 @@ def count_word_frequency(
     global_filters: Optional[List[str]] = None,
     weight_config: Optional[Dict] = None,
     max_news_per_keyword: int = 0,
+    max_news_per_source_per_keyword: int = 0,
     sort_by_position_first: bool = False,
     is_first_crawl_func: Optional[Callable[[], bool]] = None,
     convert_time_func: Optional[Callable[[str], str]] = None,
@@ -448,6 +449,18 @@ def count_word_frequency(
             ),
         )
 
+        # 按来源截断（每个来源在每个关键词下最多保留 N 条）
+        if max_news_per_source_per_keyword > 0:
+            per_source_seen: Dict[str, int] = {}
+            filtered: List[Dict] = []
+            for t in sorted_titles:
+                src = t.get("source_name", "")
+                if per_source_seen.get(src, 0) >= max_news_per_source_per_keyword:
+                    continue
+                per_source_seen[src] = per_source_seen.get(src, 0) + 1
+                filtered.append(t)
+            sorted_titles = filtered
+
         # 应用最大显示数量限制（优先级：单独配置 > 全局配置）
         group_max_count = group_key_to_max_count.get(group_key, 0)
         if group_max_count == 0:
@@ -498,6 +511,7 @@ def count_rss_frequency(
     global_filters: Optional[List[str]] = None,
     new_items: Optional[List[Dict]] = None,
     max_news_per_keyword: int = 0,
+    max_news_per_source_per_keyword: int = 0,
     sort_by_position_first: bool = False,
     timezone: str = DEFAULT_TIMEZONE,
     rank_threshold: int = 5,
@@ -677,6 +691,18 @@ def count_rss_frequency(
             data["titles"],
             key=lambda x: x["ranks"][0] if x["ranks"] else 999
         )
+
+        # 按来源截断（每个 RSS 来源在每个关键词下最多保留 N 条）
+        if max_news_per_source_per_keyword > 0:
+            per_source_seen: Dict[str, int] = {}
+            filtered: List[Dict] = []
+            for t in sorted_titles:
+                src = t.get("source_name", "")
+                if per_source_seen.get(src, 0) >= max_news_per_source_per_keyword:
+                    continue
+                per_source_seen[src] = per_source_seen.get(src, 0) + 1
+                filtered.append(t)
+            sorted_titles = filtered
 
         # 应用最大显示数量限制
         group_max_count = group_key_to_max_count.get(group_key, 0)

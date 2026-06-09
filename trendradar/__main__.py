@@ -1344,6 +1344,7 @@ class NewsAnalyzer:
                 global_filters=global_filters,
                 new_items=new_items_list,  # 增量模式所有都是新增
                 max_news_per_keyword=max_news_per_keyword,
+                max_news_per_source_per_keyword=max_news_per_source_per_keyword,
                 sort_by_position_first=sort_by_position_first,
                 timezone=timezone,
                 rank_threshold=self.rank_threshold,
@@ -1368,6 +1369,7 @@ class NewsAnalyzer:
                 global_filters=global_filters,
                 new_items=new_items_list,  # 标记新增
                 max_news_per_keyword=max_news_per_keyword,
+                max_news_per_source_per_keyword=max_news_per_source_per_keyword,
                 sort_by_position_first=sort_by_position_first,
                 timezone=timezone,
                 rank_threshold=self.rank_threshold,
@@ -1387,6 +1389,7 @@ class NewsAnalyzer:
                     global_filters=global_filters,
                     new_items=new_items_list,
                     max_news_per_keyword=max_news_per_keyword,
+                    max_news_per_source_per_keyword=max_news_per_source_per_keyword,
                     sort_by_position_first=sort_by_position_first,
                     timezone=timezone,
                     rank_threshold=self.rank_threshold,
@@ -1407,6 +1410,7 @@ class NewsAnalyzer:
                 global_filters=global_filters,
                 new_items=new_items_list,  # 标记新增
                 max_news_per_keyword=max_news_per_keyword,
+                max_news_per_source_per_keyword=max_news_per_source_per_keyword,
                 sort_by_position_first=sort_by_position_first,
                 timezone=timezone,
                 rank_threshold=self.rank_threshold,
@@ -1426,6 +1430,7 @@ class NewsAnalyzer:
                     global_filters=global_filters,
                     new_items=new_items_list,
                     max_news_per_keyword=max_news_per_keyword,
+                    max_news_per_source_per_keyword=max_news_per_source_per_keyword,
                     sort_by_position_first=sort_by_position_first,
                     timezone=timezone,
                     rank_threshold=self.rank_threshold,
