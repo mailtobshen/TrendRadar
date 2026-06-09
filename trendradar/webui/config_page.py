@@ -107,6 +107,25 @@ def render_config_page() -> str:
         }
         select { cursor: pointer; }
         textarea { resize: vertical; min-height: 80px; font-family: monospace; }
+        .form-inline {
+            display: flex; align-items: center;
+            gap: 10px; flex-wrap: wrap;
+        }
+        .form-inline .input-narrow {
+            width: 70px; flex: 0 0 auto;
+        }
+        .form-label-inline {
+            display: inline-block;
+            margin-bottom: 0; flex: 0 0 auto;
+        }
+        .form-hint {
+            font-size: 12px; color: #888;
+            margin-top: 4px; line-height: 1.5;
+        }
+        .form-hint-inline {
+            font-size: 13px; color: #555;
+            margin-top: 0; line-height: 1.5;
+        }
         input[type="checkbox"] {
             width: 18px; height: 18px; cursor: pointer;
             accent-color: #4f46e5;
@@ -592,10 +611,12 @@ def render_config_page() -> str:
                 </div>
                 <div class="form-row">
                     <div class="form-group">
-                        <label class="form-label">每批翻译条数</label>
-                        <input type="number" id="ai-translation-batch-size" min="1"
-                            onchange="updateConfig('ai_translation.batch_size', parseInt(this.value)||5)">
-                        <div class="form-hint">每批发给 AI 的标题数（值越小越不易触发内容审核拖累整批，建议 5-30）</div>
+                        <div class="form-inline">
+                            <label class="form-label form-label-inline">每批翻译条数</label>
+                            <input type="number" id="ai-translation-batch-size" class="input-narrow" min="1"
+                                onchange="updateConfig('ai_translation.batch_size', parseInt(this.value)||5)">
+                            <span class="form-hint form-hint-inline">每批发给 AI 的标题数（值越小越不易触发内容审核拖累整批，建议 5-30）</span>
+                        </div>
                     </div>
                 </div>
             </div>
