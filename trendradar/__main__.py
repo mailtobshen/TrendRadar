@@ -859,8 +859,16 @@ class NewsAnalyzer:
                 total_titles = sum(len(titles) for titles in data_source.values())
 
                 # AI 筛选的 RSS 结果替换关键词匹配的 RSS 结果
+                # 仅当 AI 结果条目数 ≥ 关键词结果时才覆盖，避免 AI 失败/低命中时丢光 RSS 数据
                 if ai_rss_stats:
-                    rss_items = ai_rss_stats
+                    ai_rss_count = sum(s.get("count", 0) for s in ai_rss_stats)
+                    kw_rss_count = sum(s.get("count", 0) for s in rss_items) if rss_items else 0
+                    if ai_rss_count >= kw_rss_count:
+                        if kw_rss_count > 0:
+                            print(f"[筛选] AI 筛选 RSS 命中 {ai_rss_count} 条（≥关键词 {kw_rss_count} 条），采用 AI 结果")
+                        rss_items = ai_rss_stats
+                    else:
+                        print(f"[筛选] AI 筛选 RSS 命中 {ai_rss_count} 条（<关键词 {kw_rss_count} 条），回退到关键词结果")
             else:
                 # AI 筛选失败，回退到关键词匹配
                 error_msg = ai_filter_result.error if ai_filter_result else "未知错误"
@@ -905,12 +913,14 @@ class NewsAnalyzer:
         # 若启用了 pre_translate_on_crawl（默认），RSS 已在 fetch 后入库前翻译过，
         # 此处跳过 rss_items / rss_new_items 翻译（避免重复调用 AI），
         # 仅翻译 standalone（若 rss_feeds 部分仍需保险也一起跑）。
+        # 注意：dispatcher 在 pre_translated=True 时会把 rss_items / rss_new_items 返回 None，
+        # 必须保留本地的 rss_items / rss_new_items 供 HTML 使用（不然后续 RSS 区域会变空）。
         trans_config = self.ctx.config.get("AI_TRANSLATION", {})
         if trans_config.get("ENABLED", False):
             dispatcher = self.ctx.create_notification_dispatcher()
             display_regions = self.ctx.config.get("DISPLAY", {}).get("REGIONS", {})
             pre_translated = trans_config.get("PRE_TRANSLATE_ON_CRAWL", True)
-            _, rss_items, rss_new_items, standalone_data = \
+            _, _dispatched_rss, _dispatched_rss_new, standalone_data = \
                 dispatcher.translate_content(
                     report_data={"stats": [], "new_titles": []},
                     rss_items=None if pre_translated else rss_items,
@@ -918,6 +928,13 @@ class NewsAnalyzer:
                     standalone_data=standalone_data,
                     display_regions=display_regions,
                 )
+            # pre_translated=True 时，dispatcher 不会翻译 RSS 也不会返回原数据；
+            # 此时保留本地已筛选好的 rss_items / rss_new_items 不变，供 HTML / 推送使用。
+            # pre_translated=False 时，dispatcher 深拷贝传入的 RSS 并翻译后返回翻译副本；
+            # 需要把 _dispatched_rss 赋给本地变量，否则 rss_items 还是未翻译的原版本。
+            if not pre_translated:
+                rss_items = _dispatched_rss if _dispatched_rss is not None else rss_items
+                rss_new_items = _dispatched_rss_new if _dispatched_rss_new is not None else rss_new_items
 
         # HTML生成（如果启用）— 使用翻译后的数据
         html_file = None
