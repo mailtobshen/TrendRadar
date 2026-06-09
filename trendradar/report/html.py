@@ -28,6 +28,7 @@ def render_html_content(
     ai_analysis: Optional[Any] = None,
     show_new_section: bool = True,
     show_standalone_section: bool = True,
+    display_regions: Optional[Dict[str, bool]] = None,
 ) -> str:
     """渲染HTML内容
 
@@ -44,6 +45,9 @@ def render_html_content(
         standalone_data: 独立展示区数据（可选），包含 platforms 和 rss_feeds
         ai_analysis: AI 分析结果对象（可选），AIAnalysisResult 实例
         show_new_section: 是否显示新增热点区域
+        show_standalone_section: 是否显示独立展示区
+        display_regions: 显示区域开关字典 {hotlist, new_items, rss, standalone, ai_analysis}
+            用于在区域开启但无内容时显示空状态占位（如 RSS 区域启用但无关键词命中）
 
     Returns:
         渲染后的 HTML 字符串
@@ -466,6 +470,19 @@ def render_html_content(
                 /* 默认无边框，由 section-divider 动态添加 */
             }
 
+            .hotlist-section-header {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                margin-bottom: 16px;
+            }
+
+            .hotlist-section-title {
+                color: #1a1a1a;
+                font-size: 16px;
+                font-weight: 600;
+            }
+
             .new-section {
                 margin-top: 40px;
                 padding-top: 24px;
@@ -655,6 +672,16 @@ def render_html_content(
             .rss-section-count {
                 color: #6b7280;
                 font-size: 14px;
+            }
+
+            .rss-empty-placeholder {
+                color: #9ca3af;
+                font-size: 13px;
+                padding: 24px 16px;
+                text-align: center;
+                background: #f9fafb;
+                border-radius: 8px;
+                border: 1px dashed #e5e7eb;
             }
 
             .feed-group {
@@ -1467,7 +1494,11 @@ def render_html_content(
     # 给热榜统计添加外层包装
     if stats_html:
         stats_html = f"""
-                <div class="hotlist-section">{tab_bar_html}{stats_html}
+                <div class="hotlist-section">
+                    <div class="hotlist-section-header">
+                        <div class="hotlist-section-title">热榜区域</div>
+                    </div>
+                    {tab_bar_html}{stats_html}
                 </div>"""
 
     # 生成新增新闻区域的HTML
@@ -1894,6 +1925,17 @@ def render_html_content(
     # 生成 RSS 统计和新增 HTML
     rss_stats_html = render_rss_stats_html(rss_items, "RSS 订阅更新") if rss_items else ""
     rss_new_html = render_rss_stats_html(rss_new_items, "RSS 新增更新") if rss_new_items else ""
+
+    # RSS 区域启用但无内容时，显示空状态占位（与 WebUI 显示区域控制保持一致）
+    if not rss_stats_html and (display_regions or {}).get("RSS", True):
+        rss_stats_html = """
+                <div class="rss-section">
+                    <div class="rss-section-header">
+                        <div class="rss-section-title">RSS 订阅</div>
+                        <div class="rss-section-count">0 条</div>
+                    </div>
+                    <div class="rss-empty-placeholder">暂无可匹配关键词的内容。可在配置中调整 frequency_words 或启用/关闭该区域。</div>
+                </div>"""
 
     # 生成独立展示区 HTML（根据配置开关控制）
     standalone_html = render_standalone_html(standalone_data) if show_standalone_section else ""

@@ -370,6 +370,7 @@ class AppContext:
             show_new_section=self.show_new_section,
             show_standalone_section=self.show_standalone_section,
             standalone_data=standalone_data,
+            display_regions=self.config.get("DISPLAY", {}).get("REGIONS", {}),
         )
 
     # === 通知内容渲染 ===
