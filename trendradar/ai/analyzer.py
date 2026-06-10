@@ -196,13 +196,13 @@ class AIAnalyzer:
             print(user_prompt)
             print("=" * 80 + "\n")
 
-        # 调用 AI API（使用 LiteLLM）— 分段发送 + 降级策略
-        # 将单次大调用拆为 2 段独立调用，单段失败不影响另一段
-        #   段 A：热榜 + 4 个核心板块（core_trends/sentiment_controversy/signals/outlook_strategy）
-        #   段 B：RSS + 独立展示区 + 2 个板块（rss_insights/standalone_summaries）
-        # 任一段触发内容审核（如 new_sensitive）时，使用降级策略重试（裁剪数据量）
+        # 调用 AI API（使用 LiteLLM）— 按板块独立发送 + 降级策略
+        # 将 6 个板块（4 个热榜板块 + RSS 洞察 + 独立展示区概括）拆为独立调用，
+        # 单个板块失败（含 new_sensitive 等内容审核拒绝、网络异常、JSON 解析失败）
+        # 不影响其他板块，AI 区域整体只在 6 个板块全部失败时才报错。
+        # 任一板块触发内容审核时，使用 1.0/0.5/0.25 三档降级策略按行数裁剪数据后重试。
         try:
-            result = self._analyze_in_segments(
+            result = self._analyze_per_board(
                 user_prompt_template=self.user_prompt_template,
                 hotlist_news=news_content,
                 rss_news=rss_content,
@@ -398,75 +398,6 @@ class AIAnalyzer:
         lower = error_msg.lower()
         return any(marker in lower for marker in self._SENSITIVE_MARKERS)
 
-    def _analyze_in_segments(
-        self,
-        user_prompt_template: str,
-        hotlist_news: str,
-        rss_news: str,
-        standalone_data,
-        report_mode: str,
-        report_type: str,
-        current_time: str,
-        news_count: int,
-        rss_count: int,
-        platforms,
-        keywords,
-        language: str,
-    ) -> AIAnalysisResult:
-        """
-        分段发送 AI 分析并合并结果。
-
-        分段策略：
-          段 A — 热榜 4 板块（core_trends / sentiment_controversy / signals / outlook_strategy）
-          段 B — RSS + 独立展示区 2 板块（rss_insights / standalone_summaries）
-
-        每段独立调用，单段失败（含 new_sensitive 等内容审核拒绝）不影响另一段。
-        失败时使用降级策略：按比例裁剪内容后重试，最坏情况下回退到无内容段。
-        """
-        standalone_content = ""
-        if standalone_data:
-            standalone_content, _ = self._prepare_standalone_content(standalone_data)
-        else:
-            standalone_content = ""
-
-        # 段 A：热榜驱动
-        segment_a_result = self._try_segment_with_degradation(
-            label="热榜",
-            user_prompt_template=user_prompt_template,
-            news_override=hotlist_news,
-            rss_override="（本段不含 RSS 数据）",
-            standalone_override="（本段不含独立展示区数据）",
-            report_mode=report_mode,
-            report_type=report_type,
-            current_time=current_time,
-            news_count=news_count,
-            rss_count=0,
-            platforms=platforms,
-            keywords=keywords,
-            language=language,
-        )
-
-        # 段 B：RSS + 独立展示区驱动（仅在有数据时执行）
-        segment_b_result = None
-        if rss_news or standalone_content:
-            segment_b_result = self._try_segment_with_degradation(
-                label="RSS+独立展示区",
-                user_prompt_template=user_prompt_template,
-                news_override="（本段不含热榜数据）",
-                rss_override=rss_news or "（无 RSS 数据）",
-                standalone_override=standalone_content or "（无独立展示区数据）",
-                report_mode=report_mode,
-                report_type=report_type,
-                current_time=current_time,
-                news_count=0,
-                rss_count=rss_count,
-                platforms=platforms,
-                keywords=keywords,
-                language=language,
-            )
-
-        return self._merge_segment_results(segment_a_result, segment_b_result)
-
     def _build_segment_prompt(
         self,
         user_prompt_template: str,
@@ -505,10 +436,22 @@ class AIAnalyzer:
         keep = max(1, int(len(lines) * keep_ratio))
         return "\n".join(lines[:keep])
 
-    def _try_segment_with_degradation(
+    # === 单板块独立发送：颗粒度更细，失败不互相牵连 ===
+
+    # 板块常量：key=AIAnalysisResult 字段名，scope=数据来源（"hotlist" | "rss" | "standalone"）
+    _BOARD_SPECS: tuple = (
+        ("core_trends", "hotlist"),
+        ("sentiment_controversy", "hotlist"),
+        ("signals", "hotlist"),
+        ("outlook_strategy", "hotlist"),
+        ("rss_insights", "rss"),
+        ("standalone_summaries", "standalone"),
+    )
+
+    def _build_board_prompt(
         self,
-        label: str,
         user_prompt_template: str,
+        board_key: str,
         news_override: str,
         rss_override: str,
         standalone_override: str,
@@ -520,45 +463,147 @@ class AIAnalyzer:
         platforms,
         keywords,
         language: str,
-    ) -> Optional[AIAnalysisResult]:
-        """
-        尝试发送单个分析段；失败时按内容审核/网络错误分别做降级。
+    ) -> str:
+        """构造单板块的 user prompt：在原模板基础上追加"只输出该字段 JSON"的约束。"""
+        base = self._build_segment_prompt(
+            user_prompt_template=user_prompt_template,
+            news_override=news_override,
+            rss_override=rss_override,
+            standalone_override=standalone_override,
+            report_mode=report_mode,
+            report_type=report_type,
+            current_time=current_time,
+            news_count=news_count,
+            rss_count=rss_count,
+            platforms=platforms,
+            keywords=keywords,
+            language=language,
+        )
+        # 追加单字段约束，限制 AI 一次只返回一个字段，缩小 payload/审核面
+        constraint = (
+            "\n\n---\n本调用只分析「"
+            f"{board_key}"
+            "」一个板块。请严格按以下 JSON 格式返回（其他字段一律不要输出，"
+            "也不要输出 Markdown 之外的解释文字）：\n\n"
+            "```json\n"
+            "{\n"
+            f'  "{board_key}": "...（按原板块说明的写法输出，可空字符串但字段必须存在）"\n'
+            "}\n"
+            "```\n"
+        )
+        return base + constraint
 
-        降级档位：[1.0, 0.5, 0.25]，对应新闻/独立展示区内容行数。
-        非内容审核错误（如 401/网络）只重试一次。
+    def _parse_board_response(self, board_key: str, response: str) -> Optional[str]:
         """
+        从 AI 响应中仅提取指定板块字段。
+
+        成功（字段非空字符串且解析成功）→ 返回字符串。
+        失败（响应空 / JSON 解析失败 / 字段缺失或为空）→ 返回 None，调用方按降级重试。
+        """
+        if not response or not response.strip():
+            return None
+
+        # 去掉 markdown 代码块标记
+        json_str = response
+        if "```json" in response:
+            code_block = response.split("```json", 1)[1]
+            end_idx = code_block.find("```")
+            json_str = code_block[:end_idx] if end_idx != -1 else code_block
+        elif "```" in response:
+            parts = response.split("```", 2)
+            json_str = parts[1] if len(parts) >= 2 else response
+
+        json_str = json_str.strip()
+        if not json_str:
+            return None
+
+        # 第一步：标准 JSON 解析
+        data = None
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError:
+            # 第二步：json_repair 本地修复
+            try:
+                from json_repair import repair_json
+                repaired = repair_json(json_str, return_objects=True)
+                if isinstance(repaired, dict):
+                    data = repaired
+            except Exception:
+                return None
+
+        if not isinstance(data, dict):
+            return None
+
+        value = data.get(board_key)
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return str(value) if not isinstance(value, str) else value
+
+    def _try_board_with_degradation(
+        self,
+        board_key: str,
+        scope: str,
+        user_prompt_template: str,
+        hotlist_news: str,
+        rss_news: str,
+        standalone_content: str,
+        report_mode: str,
+        report_type: str,
+        current_time: str,
+        news_count: int,
+        rss_count: int,
+        platforms,
+        keywords,
+        language: str,
+    ) -> Optional[str]:
+        """
+        尝试发送单个板块；失败时按 [1.0, 0.5, 0.25] 降级裁剪重试。
+        成功 → 返回字段字符串；所有档失败 → 返回 None。
+        """
+        # 根据 scope 决定每段数据是否要喂给 AI
+        if scope == "hotlist":
+            news_override, rss_override, standalone_override = hotlist_news, "（本板块不含 RSS 数据）", "（本板块不含独立展示区数据）"
+            eff_news_count, eff_rss_count = news_count, 0
+        elif scope == "rss":
+            news_override, rss_override, standalone_override = "（本板块不含热榜数据）", rss_news or "（无 RSS 数据）", "（本板块不含独立展示区数据）"
+            eff_news_count, eff_rss_count = 0, rss_count
+        else:  # standalone
+            news_override, rss_override, standalone_override = "（本板块不含热榜数据）", "（本板块不含 RSS 数据）", standalone_content or "（无独立展示区数据）"
+            eff_news_count, eff_rss_count = 0, 0
+
         degradation_steps = [1.0, 0.5, 0.25]
         last_error: Optional[str] = None
 
         for step, ratio in enumerate(degradation_steps, start=1):
-            news_payload = self._truncate_lines(news_override, ratio)
-            rss_payload = self._truncate_lines(rss_override, ratio)
-            standalone_payload = self._truncate_lines(standalone_override, ratio)
-
-            user_prompt = self._build_segment_prompt(
+            user_prompt = self._build_board_prompt(
                 user_prompt_template=user_prompt_template,
-                news_override=news_payload,
-                rss_override=rss_payload,
-                standalone_override=standalone_payload,
+                board_key=board_key,
+                news_override=self._truncate_lines(news_override, ratio),
+                rss_override=self._truncate_lines(rss_override, ratio),
+                standalone_override=self._truncate_lines(standalone_override, ratio),
                 report_mode=report_mode,
                 report_type=report_type,
                 current_time=current_time,
-                news_count=news_count if ratio == 1.0 else max(0, int(news_count * ratio)),
-                rss_count=rss_count if ratio == 1.0 else max(0, int(rss_count * ratio)),
+                news_count=eff_news_count if ratio == 1.0 else max(0, int(eff_news_count * ratio)),
+                rss_count=eff_rss_count if ratio == 1.0 else max(0, int(eff_rss_count * ratio)),
                 platforms=platforms,
                 keywords=keywords,
                 language=language,
             )
 
             if self.debug:
-                print(f"\n[AI 调试] [{label}] 降级档 {step}/{len(degradation_steps)} (ratio={ratio})")
+                print(f"\n[AI 调试] [{board_key}] 降级档 {step}/{len(degradation_steps)} (ratio={ratio})")
 
             try:
                 response = self._call_ai(user_prompt)
-                result = self._parse_response(response)
-                if ratio < 1.0:
-                    print(f"[AI] [{label}] 降级档 {step} (ratio={ratio}) 成功")
-                return result
+                value = self._parse_board_response(board_key, response)
+                if value is not None:
+                    if ratio < 1.0:
+                        print(f"[AI] [{board_key}] 降级档 {step} (ratio={ratio}) 成功")
+                    return value
+                last_error = "字段解析失败或为空"
             except Exception as e:
                 err = str(e)
                 last_error = err
@@ -566,75 +611,131 @@ class AIAnalyzer:
 
                 if is_sensitive and step < len(degradation_steps):
                     print(
-                        f"[AI] [{label}] 内容审核拒绝 (step {step}/{len(degradation_steps)}): "
+                        f"[AI] [{board_key}] 内容审核拒绝 (step {step}/{len(degradation_steps)}): "
                         f"{err[:120]}... → 降级重试"
                     )
                     continue
                 if is_sensitive:
                     print(
-                        f"[AI] [{label}] 内容审核拒绝，已降至最低档仍失败: {err[:120]}..."
+                        f"[AI] [{board_key}] 内容审核拒绝，已降至最低档仍失败: {err[:120]}..."
                     )
                     return None
                 # 非内容审核错误：网络/配置类，不重试
-                print(f"[AI] [{label}] 调用失败（非内容审核）: {err[:200]}")
+                print(f"[AI] [{board_key}] 调用失败（非内容审核）: {err[:200]}")
                 return None
 
-        print(f"[AI] [{label}] 所有降级档失败: {last_error[:200] if last_error else 'unknown'}")
+            # 字段解析失败：仅在还有降级档时重试
+            if step < len(degradation_steps):
+                print(
+                    f"[AI] [{board_key}] 字段解析失败 (step {step}/{len(degradation_steps)}): "
+                    f"{last_error} → 降级重试"
+                )
+                continue
+            return None
+
+        print(f"[AI] [{board_key}] 所有降级档失败: {last_error[:200] if last_error else 'unknown'}")
         return None
 
-    def _merge_segment_results(
+    def _analyze_per_board(
         self,
-        segment_a: Optional[AIAnalysisResult],
-        segment_b: Optional[AIAnalysisResult],
+        user_prompt_template: str,
+        hotlist_news: str,
+        rss_news: str,
+        standalone_data,
+        report_mode: str,
+        report_type: str,
+        current_time: str,
+        news_count: int,
+        rss_count: int,
+        platforms,
+        keywords,
+        language: str,
     ) -> AIAnalysisResult:
         """
-        合并两段结果。任一段成功 → 整体 success=True，缺失字段留空。
-        两段都失败 → 整体 success=False。
+        按板块独立调用 AI：每个板块是独立调用 + 独立降级，单板块失败不影响其他板块。
+
+        6 个板块（按 _BOARD_SPECS 顺序）：
+          core_trends / sentiment_controversy / signals / outlook_strategy — 热榜 4 板块
+          rss_insights                                                    — RSS 洞察
+          standalone_summaries                                            — 独立展示区概括
+
+        任意 ≥1 个板块成功 → 整体 success=True，缺失板块字段为空。
+        6 个板块全失败 → 整体 success=False。
         """
-        if segment_a is None and segment_b is None:
+        standalone_content = ""
+        if standalone_data:
+            standalone_content, _ = self._prepare_standalone_content(standalone_data)
+
+        board_results: Dict[str, str] = {}
+
+        for board_key, scope in self._BOARD_SPECS:
+            # 跳过用户未启用的板块
+            if board_key == "rss_insights" and not self.include_rss:
+                continue
+            if board_key == "standalone_summaries" and not self.include_standalone:
+                continue
+
+            value = self._try_board_with_degradation(
+                board_key=board_key,
+                scope=scope,
+                user_prompt_template=user_prompt_template,
+                hotlist_news=hotlist_news,
+                rss_news=rss_news,
+                standalone_content=standalone_content,
+                report_mode=report_mode,
+                report_type=report_type,
+                current_time=current_time,
+                news_count=news_count,
+                rss_count=rss_count,
+                platforms=platforms,
+                keywords=keywords,
+                language=language,
+            )
+            if value is not None:
+                board_results[board_key] = value
+
+        return self._merge_board_results(board_results)
+
+    def _merge_board_results(
+        self,
+        board_results: Dict[str, str],
+    ) -> AIAnalysisResult:
+        """
+        合并各板块结果。
+
+        - 任一板块成功 → 整体 success=True，缺失字段留空
+        - 全部板块失败 → 整体 success=False，error 提示"全部板块均未成功"
+        - raw_response 汇总所有成功板块，便于调试
+        """
+        if not board_results:
             return AIAnalysisResult(
                 success=False,
-                error="AI 分析失败：热榜段和 RSS+独立展示区段均未成功（可能触发内容审核或网络异常）",
+                error=(
+                    "AI 分析失败：所有 6 个板块（核心热点/舆论风向/异动信号/研判策略/"
+                    "RSS 洞察/独立展示区）均未成功（可能触发内容审核或网络异常）"
+                ),
             )
 
-        # 以成功的段为主，缺字段留空
-        primary = segment_a or segment_b
-        secondary = segment_b if segment_a else None
+        merged = AIAnalysisResult(success=True)
+        for key, value in board_results.items():
+            if key == "standalone_summaries":
+                # 安全地把字符串/字典都接受；这里 AI 应返回 dict，但兜底接受 string
+                try:
+                    parsed = json.loads(value) if isinstance(value, str) and value.strip().startswith(("{", "[")) else value
+                    if isinstance(parsed, dict):
+                        merged.standalone_summaries = {str(k): str(v) for k, v in parsed.items()}
+                    else:
+                        # 不是 dict 时尝试按行解析 "源: 概括" 简写
+                        merged.standalone_summaries = {f"源{i+1}": line.strip() for i, line in enumerate(value.splitlines()) if line.strip()}
+                except Exception:
+                    merged.standalone_summaries = {f"源{i+1}": line.strip() for i, line in enumerate(value.splitlines()) if line.strip()}
+            else:
+                setattr(merged, key, value)
 
-        merged = AIAnalysisResult(
-            success=True,
-            core_trends=primary.core_trends,
-            sentiment_controversy=primary.sentiment_controversy,
-            signals=primary.signals,
-            outlook_strategy=primary.outlook_strategy,
-            rss_insights=primary.rss_insights,
-            standalone_summaries=dict(primary.standalone_summaries),
-            raw_response=primary.raw_response,
+        merged.raw_response = "\n\n".join(
+            f"[{key}]\n{value}" for key, value in board_results.items()
         )
-
-        if secondary is not None:
-            # 段 A 段 B 都成功：以段 A 的 4 板块为主，段 B 的 2 板块补充
-            if segment_a and segment_b:
-                merged.rss_insights = segment_b.rss_insights or ""
-                merged.standalone_summaries = dict(segment_b.standalone_summaries)
-                # 拼接 raw_response 便于调试
-                merged.raw_response = (
-                    f"[A]\n{segment_a.raw_response}\n\n[B]\n{segment_b.raw_response}"
-                )
-        else:
-            # 只有段 A 成功：rss_insights/standalone_summaries 留空
-            if segment_a:
-                merged.rss_insights = ""
-                merged.standalone_summaries = {}
-            # 只有段 B 成功：4 个热榜板块留空
-            elif segment_b:
-                merged.core_trends = ""
-                merged.sentiment_controversy = ""
-                merged.signals = ""
-                merged.outlook_strategy = ""
-
         return merged
-
 
     def _retry_fix_json(self, original_response: str, error_msg: str) -> Optional[AIAnalysisResult]:
         """
