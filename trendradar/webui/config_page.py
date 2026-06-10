@@ -660,7 +660,7 @@ def render_config_page() -> str:
                 </div>
                 <div class="checkbox-row">
                     <input type="checkbox" id="report-sort-position" onchange="updateConfig('report.sort_by_position_first', this.checked)">
-                    <label for="report-sort-position">按 frequency_words 定义顺序排序（仅 keyword 模式）</label>
+                    <label for="report-sort-position">按关键词定义顺序排序（仅限关键词过滤 模式）</label>
                 </div>
             </div>
 
