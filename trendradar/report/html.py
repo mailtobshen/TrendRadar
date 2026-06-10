@@ -284,9 +284,9 @@ def render_html_content(
             }
 
             .word-name {
-                font-size: 17px;
+                font-size: 15px;
                 font-weight: 600;
-                color: #1a1a1a;
+                color: #059669;
             }
 
             .word-count {
