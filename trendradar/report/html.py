@@ -478,8 +478,8 @@ def render_html_content(
             }
 
             .hotlist-section-title {
-                color: #1a1a1a;
-                font-size: 16px;
+                color: #059669;
+                font-size: 18px;
                 font-weight: 600;
             }
 
@@ -489,8 +489,8 @@ def render_html_content(
             }
 
             .new-section-title {
-                color: #1a1a1a;
-                font-size: 16px;
+                color: #059669;
+                font-size: 18px;
                 font-weight: 600;
                 margin: 0 0 20px 0;
             }
