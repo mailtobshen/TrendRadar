@@ -70,9 +70,25 @@ def _format_standalone_summaries(summaries: dict) -> str:
     if not summaries:
         return ""
     lines = []
+    fallback_idx = 0
     for source_name, summary in summaries.items():
-        if summary:
-            lines.append(f"[{source_name}]:\n{summary}")
+        # 防御性清洗：json_repair 修复失败时可能产出含半成品 JSON 标记（如
+        # "{'Hacker News': 'xxx'"）的 key/value。原样拼入正文会暴露
+        # "[{'Hacker News': 'xxx']:" 这种残片，故做如下规范化。
+        clean_name = source_name if isinstance(source_name, str) else str(source_name)
+        clean_name = clean_name.strip()
+        if not clean_name or clean_name[:1] in "{[":
+            fallback_idx += 1
+            clean_name = f"源{fallback_idx}"
+
+        # None / 空字符串 / 纯空白：直接丢弃，避免渲染出 "[源1]:\nNone" 这种残片
+        if summary is None:
+            continue
+        clean_summary = summary if isinstance(summary, str) else str(summary)
+        if not clean_summary.strip():
+            continue
+
+        lines.append(f"[{clean_name}]:\n{clean_summary}")
     return "\n\n".join(lines)
 
 
