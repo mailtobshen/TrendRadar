@@ -14,6 +14,40 @@ from trendradar.ai.client import AIClient
 from trendradar.ai.prompt_loader import load_prompt_template
 
 
+def _parse_standalone_text(value: str) -> Dict[str, str]:
+    """将 AI 返回的多行文本解析为 {源名: 摘要}。
+
+    AI 偶发不遵守 prompt 约束（要求 dict 形态），输出 "源名: 摘要" 多行文本。
+    按行解析：若首段像"源名"（≤ 20 字且首字符是字母/汉字），按第一个冒号
+    拆出 key/value；否则用 "源N" 占位 key。
+    """
+    result: Dict[str, str] = {}
+    for line in value.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # 识别 "源名: 摘要" 形态：首个冒号前的源名不应过长，
+        # 且首字符应是字母/汉字（避免误拆 "1. 摘要" 等列表项）。
+        head, sep, tail = line.partition(":")
+        first_char = head[:1]
+        looks_like_name = (
+            sep
+            and head
+            and len(head) <= 20
+            and (first_char.isalpha() or "一" <= first_char <= "鿿")
+        )
+        if looks_like_name:
+            key = head.strip()
+            value_part = tail.strip()
+        else:
+            # 不像 "源名: 摘要"：兜底用 "源N" 占位
+            key = f"源{len(result) + 1}"
+            value_part = line
+        if value_part:
+            result[key] = value_part
+    return result
+
+
 @dataclass
 class AIAnalysisResult:
     """AI 分析结果"""
@@ -725,10 +759,12 @@ class AIAnalyzer:
                     if isinstance(parsed, dict):
                         merged.standalone_summaries = {str(k): str(v) for k, v in parsed.items()}
                     else:
-                        # 不是 dict 时尝试按行解析 "源: 概括" 简写
-                        merged.standalone_summaries = {f"源{i+1}": line.strip() for i, line in enumerate(value.splitlines()) if line.strip()}
+                        # 不是 dict 时按行解析。AI 偶发不守 prompt 约束，返回
+                        # "源名: 摘要" 形态的多行文本，应拆分以保留可读的源名
+                        # （否则会出现 [源1]:\\n福克斯新闻: 摘要 这种重前缀）。
+                        merged.standalone_summaries = _parse_standalone_text(value)
                 except Exception:
-                    merged.standalone_summaries = {f"源{i+1}": line.strip() for i, line in enumerate(value.splitlines()) if line.strip()}
+                    merged.standalone_summaries = _parse_standalone_text(value)
             else:
                 setattr(merged, key, value)
 
