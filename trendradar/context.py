@@ -45,6 +45,21 @@ from trendradar.ai.filter import AIFilter, AIFilterResult
 from trendradar.storage import get_storage_manager
 
 
+def _cap_per_source(titles: List[Dict], per_source_limit: int) -> List[Dict]:
+    """按 source_name 截断每个来源最多保留的标题数，保持原有顺序。"""
+    if per_source_limit <= 0 or not titles:
+        return titles
+    counts: Dict[str, int] = {}
+    kept: List[Dict] = []
+    for title in titles:
+        source_name = title.get("source_name", "")
+        if counts.get(source_name, 0) >= per_source_limit:
+            continue
+        counts[source_name] = counts.get(source_name, 0) + 1
+        kept.append(title)
+    return kept
+
+
 class AppContext:
     """
     应用上下文类
@@ -978,6 +993,7 @@ class AppContext:
         hotlist_stats = []
         rss_stats = []
         max_news = self.config.get("MAX_NEWS_PER_KEYWORD", 0)
+        max_news_per_source = self.config.get("MAX_NEWS_PER_SOURCE_PER_KEYWORD", 3)
         min_score = self.ai_filter_config.get("MIN_SCORE", 0)
 
         # current 模式：计算最新时间，只保留当前在榜的热榜新闻
@@ -1101,6 +1117,8 @@ class AppContext:
                     hotlist_titles.append(title_entry)
 
             if hotlist_titles:
+                if max_news_per_source > 0:
+                    hotlist_titles = _cap_per_source(hotlist_titles, max_news_per_source)
                 if max_news > 0:
                     hotlist_titles = hotlist_titles[:max_news]
                 hotlist_stats.append({
@@ -1111,6 +1129,8 @@ class AppContext:
                 })
 
             if rss_titles:
+                if max_news_per_source > 0:
+                    rss_titles = _cap_per_source(rss_titles, max_news_per_source)
                 if max_news > 0:
                     rss_titles = rss_titles[:max_news]
                 rss_stats.append({
